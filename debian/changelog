@@ -1,3 +1,19 @@
+e2fsprogs (1.42-1ubuntu2) precise; urgency=low
+
+  * Build-depend on gettext:any instead of on gettext, so that apt-get can
+    properly resolve build-dependencies on the tool when cross-building.
+  * Drop build dependency on dc, which hasn't been needed for some time.
+
+ -- Steve Langasek <steve.langasek@ubuntu.com>  Fri, 30 Mar 2012 12:59:46 -0700
+
+e2fsprogs (1.42-1ubuntu1) precise; urgency=low
+
+  * Merge from Debian unstable, remaining changes:
+    - debian/control: Do not build-depend on dietlibc-dev, which is universe.
+    - debian/rules: Block pkg-create-dbgsym from operating on this package.
+
+ -- Kees Cook <kees@ubuntu.com>  Wed, 15 Feb 2012 13:48:05 -0800
+
 e2fsprogs (1.42-1) unstable; urgency=low
 
   * New upstream release
@@ -34,6 +50,16 @@ e2fsprogs (1.42~WIP-2011-11-20-1) unstable; urgency=low
 
  -- Theodore Y. Ts'o <tytso@mit.edu>  Sun, 20 Nov 2011 21:32:49 -0500
 
+e2fsprogs (1.42~WIP-2011-10-16-1ubuntu1) precise; urgency=low
+
+  * Merge from Debian unstable, remaining changes:
+    - debian/control: Do not build-depend on dietlibc-dev, which is universe.
+    - debian/rules:
+      + Do now allow pkg-create-dbgsym to operate on this package.
+  * fix online resizing bug (LP: #880984)
+
+ -- Scott Moser <smoser@brickies.net>  Mon, 24 Oct 2011 17:00:17 -0400
+
 e2fsprogs (1.42~WIP-2011-10-16-1) unstable; urgency=low
 
   * New upstream release
@@ -46,6 +72,22 @@ e2fsprogs (1.42~WIP-2011-10-16-1) unstable; urgency=low
   * Update Sweedish, Polish, French, German, and Czech translations
 
  -- Theodore Y. Ts'o <tytso@mit.edu>  Sun, 16 Oct 2011 22:07:03 -0400
+
+e2fsprogs (1.42~WIP-2011-10-09-1ubuntu1) precise; urgency=low
+
+  * Merge from Debian unstable, remaining changes:
+    - debian/control: Do not build-depend on dietlibc-dev, which is universe.
+    - debian/rules:
+      + Do now allow pkg-create-dbgsym to operate on this package.
+  * Dropped changes, included upstream:
+    - Build for multiarch.
+  * Droped obsolete changes:
+    - debian/e2fsprogs.preinst: only needed for pre-lucid upgrades; drop.
+    - Build with -O2 on powerpc: no reference to the toolchain bug was ever
+      provided, and this hasn't been a problem in Debian, so it's probably
+      long since fixed.  Drop.
+
+ -- Steve Langasek <steve.langasek@ubuntu.com>  Mon, 17 Oct 2011 21:39:23 +0000
 
 e2fsprogs (1.42~WIP-2011-10-09-1) unstable; urgency=low
 
@@ -214,6 +256,33 @@ e2fsprogs (1.42~WIP-2011-07-02-1) unstable; urgency=low
 
  -- Theodore Y. Ts'o <tytso@mit.edu>  Sat, 02 Jul 2011 22:38:57 -0400
 
+e2fsprogs (1.41.14-1ubuntu3) natty; urgency=low
+
+  * Don't install to multiarch paths for the udeb build, just use the
+    traditional lib paths so we find our libraries more readily.
+    LP: #736908.
+
+ -- Steve Langasek <steve.langasek@ubuntu.com>  Thu, 17 Mar 2011 10:46:45 -0700
+
+e2fsprogs (1.41.14-1ubuntu2) natty; urgency=low
+
+  * Build for multiarch, setting Pre-Depends: multiarch-support in our
+    shared lib package.
+
+ -- Steve Langasek <steve.langasek@ubuntu.com>  Wed, 16 Mar 2011 08:44:43 -0700
+
+e2fsprogs (1.41.14-1ubuntu1) natty; urgency=low
+
+  * Merge from debian experimental (LP: #681418), remaining changes:
+    - debian/control: Do not build-depend on dietlibc-dev, which is universe.
+    - debian/rules:
+      + Do now allow pkg-create-dbgsym to operate on this package.
+      + Build with -O2 on powerpc to avoid a suspected toolchain bug.
+    - debian/e2fsprogs.preinst: Do not include /etc/e2fsck.conf and remove on
+      upgrade.
+
+ -- Lorenzo De Liso <blackz@ubuntu.com>  Mon, 03 Jan 2011 15:03:19 +0100
+
 e2fsprogs (1.41.14-1) experimental; urgency=low
 
   * New upstream release
@@ -287,6 +356,35 @@ e2fsprogs (1.41.12-2) unstable; urgency=high
 
  -- Theodore Y. Ts'o <tytso@mit.edu>  Thu, 03 Jun 2010 09:30:36 -0400
 
+e2fsprogs (1.41.12-1ubuntu3) natty; urgency=low
+
+  * No-change upload to reduce changelogs.
+
+ -- Martin Pitt <martin.pitt@ubuntu.com>  Mon, 13 Dec 2010 12:57:53 +0100
+
+e2fsprogs (1.41.12-1ubuntu2) maverick; urgency=low
+
+  * The -p switch for resize2fs is meant for an offline resize operation which
+    is done completely at the userspace. Changed the documentation to suggest
+    an "offline" operation. (LP: #505719)
+
+ -- Surbhi Palande <surbhi.palande@canonical.com>  Wed, 18 Aug 2010 15:48:21 +0100
+
+e2fsprogs (1.41.12-1ubuntu1) maverick; urgency=low
+
+  * Merge from Debian unstable, remaining changes:
+    - Do not build-depend on dietlibc-dev, which is universe.
+    - Do now allow pkg-create-dbgsym to operate on this package.
+    - Always use external libblkid and libuuid from util-linux, rather than
+      building our own.
+    - Includes debian/control in the source package to force the above.
+    - Build with -O2 on powerpc to avoid a suspected toolchain bug
+      (LP: #450214).
+    - Do not include /etc/e2fsck.conf and remove on upgrade.
+    (Fixes LP: #521648, #537483, #530071)
+
+ -- Scott James Remnant <scott@ubuntu.com>  Mon, 07 Jun 2010 15:49:29 +0100
+
 e2fsprogs (1.41.12-1) unstable; urgency=low
 
   * New upstream release
@@ -327,6 +425,21 @@ e2fsprogs (1.41.12-1) unstable; urgency=low
 
  -- Theodore Y. Ts'o <tytso@mit.edu>  Mon, 17 May 2010 19:43:52 -0400
 
+e2fsprogs (1.41.11-1ubuntu1) lucid; urgency=low
+
+  * Merge from Debian unstable, remaining changes:
+    - Do not build-depend on dietlibc-dev, which is universe.
+    - Do now allow pkg-create-dbgsym to operate on this package.
+    - Always use external libblkid and libuuid from util-linux, rather than
+      building our own.
+    - Includes debian/control in the source package to force the above.
+    - Build with -O2 on powerpc to avoid a suspected toolchain bug
+      (LP: #450214).
+    - Do not include /etc/e2fsck.conf and remove on upgrade.
+    (Fixes LP: #521648, #537483, #530071)
+
+ -- Scott James Remnant <scott@ubuntu.com>  Mon, 22 Mar 2010 17:48:20 +0000
+
 e2fsprogs (1.41.11-1) unstable; urgency=medium
 
   * New upstream release
@@ -357,6 +470,26 @@ e2fsprogs (1.41.11-1) unstable; urgency=medium
   * Update debian policy compliance to 3.8.4
 
  -- Theodore Y. Ts'o <tytso@mit.edu>  Mon, 15 Mar 2010 00:16:35 -0400
+
+e2fsprogs (1.41.10-1ubuntu2) lucid; urgency=low
+
+  * Add fsck.ext4 symlink to e2fsprogs-udeb.
+
+ -- Colin Watson <cjwatson@ubuntu.com>  Fri, 26 Feb 2010 18:03:35 +0000
+
+e2fsprogs (1.41.10-1ubuntu1) lucid; urgency=low
+
+  * Merge from Debian unstable, remaining changes:
+    - Do not build-depend on dietlibc-dev, which is universe.
+    - Do now allow pkg-create-dbgsym to operate on this package.
+    - Always use external libblkid and libuuid from util-linux, rather than
+      building our own.
+    - Includes debian/control in the source package to force the above.
+    - Build with -O2 on powerpc to avoid a suspected toolchain bug
+      (LP: #450214).
+    - Do not include /etc/e2fsck.conf and remove on upgrade.
+
+ -- Scott James Remnant <scott@ubuntu.com>  Wed, 17 Feb 2010 10:53:45 +0000
 
 e2fsprogs (1.41.10-1) unstable; urgency=low
 
@@ -427,6 +560,138 @@ e2fsprogs (1.41.10-1) unstable; urgency=low
 
  -- Theodore Y. Ts'o <tytso@mit.edu>  Sun, 07 Feb 2010 20:56:47 -0500
 
+e2fsprogs (1.41.9-1ubuntu4) lucid; urgency=low
+
+  * Update from GIT maint branch:
+
+    [Michael Roth]
+  
+    * Update .gitignore
+  
+    [Cristian Rodríguez]
+  
+    * fix fd leak that causes fsck to fail with "too many open files"
+  
+    [Eric Sandeen]
+  
+    * mke2fs: get device topology values from blkid
+    * configure.in: Fix typo: remove '2' from blkid_probe_get_topology2
+    * resize2fs: exit fix_sb_journal_backup early for external journal
+    * libext2fs: don't swap extent-based journal backup
+    * mke2fs support for BLKDISCARD
+    * mke2fs: open device writable for trim/discard
+  
+    [Peng Tao]
+  
+    * resize2fs: calculate minimal fs size only once
+    * resize2fs: fix minimum resize size calculation with flex_bg.  redhat:
+      #519131
+    * debugfs: add matching fclose.  novell: #524526
+  
+    [Theodore Ts'o]
+  
+    * tune2fs: Fix "tune2fs -j <dev>" for extent-enabled filesystems. 
+      launchpad: #416648
+    * e2fsck: Avoid scary failure messages on low-memory systems. 
+      Closes: #509529
+    * debian: Make sure libblkid1 and libblkid1-dbg have changelogs
+    * dumpe2fs: Print more information about the inline journal
+    * configure.in, configure: Drop --with-cc, --with-ccopts, --with-ldopts. 
+      sourceforge: #2843248
+    * tune2fs.8: Document the flex_bg file system option in the man page. 
+      sourceforge: #2822186
+    * mke2fs.8.in: Clarify flex_bg feature description
+    * libext2fs: Round up the bitmap size when allocating a new bitmap. 
+      sourceforge: #2328708
+    * e2undo: Initialize com_err error tables for the ext2fs library
+    * libext2fs: Add error table initialization to test programs
+    * blkid: Avoid a potentially error message when running "make clean"
+    * e2fsck: Use the correct problem code in the case of LAST_WRITE_FUDGED
+    * Don't use in-tree header files if using system uuid or blkid libraries
+    * tests: Account for new mke2fs topology information
+    * libext2fs: Always build file_io.c
+    * e2fsck: Interpret negative blkcount in file system problem reports. 
+      sourceforge: #2871782
+    * e2fsck: Fix handling of non-zero i_blocks_high field
+    * e2fsck: Accept superblock times to be fudged by up to 24 hours by default
+    * libext2fs: Fix FEATURE_RO_COMPAT_HUGE_FILE && !HUGE_FILE_FL
+    * dumpe2fs: Fix usage message for -o superblock=<num> and -o
+      blocksize=<num>.  launchpad: #448099
+    * tune2fs.8: Clarify tune2fs's -i option
+    * debian: Add pre-depends for util-linux for util-linux-ng builds. 
+      Closes: #551795
+    * debian: Fix pre-depends relation for util-linux-ng
+    * libss: initialize function pointer for readline_shutdown()
+    * e2fsck: Fix duplicate directory entries for non-indexed directories. 
+      sourceforge: #2862551
+    * configure: Work around bug in autoconf 2.64
+    * e2fsck: Fix directory with holes even when i_size is wrong
+    * e2fsck: Move check to add an index to a directory after fixing i_size
+    * filefrag: Fix a core dump on sparc32 platforms with 8k file systems
+    * e2fsck: detect holes in extent-mapped directories
+    * libext2fs: Fix SET_BMAP bugs in ext2fs_bmap() and ext2fs_bmap2()
+    * e2fsck: Fix block allocation for holes in extent-mapped directories
+    * e2fsck: Don't rehash directories which can fit in a single directory block
+    * e2fsck: Try to update on-disk bitmap in e2fsck_get_alloc_block() callback
+    * tests: Add new test f_holedir2
+    * debian: Fix FTBFS problem caused by texi2html changing its output
+      location.  Closes: #552934
+    * debian: Add source lintian overrides
+  
+    [Karel Zak]
+  
+    * blkid: support .ko.gz in modules.dep parser
+    * libext2fs: handle <=linux-2.6.19 bug in /proc/swaps
+  
+    [localization folks]
+  
+    * po: update vi.po (from translationproject.org) (Clytie Siddall)
+    * po: update pl.po (from translationproject.org) (Jakub Bogusz)
+    * po: update cs.po (from translationproject.org) (Petr Pisar)
+    * po: update id.po (from translationproject.org) (Arif E. Nugroho)
+
+   remaining changes:
+    - Do not build-depend on dietlibc-dev, which is universe.
+    - Do now allow pkg-create-dbgsym to operate on this package.
+    - Do not include /etc/e2fsck.conf and remove on upgrade.
+    - Always regenerate debian/control
+  
+ -- Scott James Remnant <scott@ubuntu.com>  Sat, 06 Feb 2010 00:30:22 -0800
+
+e2fsprogs (1.41.9-1ubuntu3) karmic; urgency=low
+
+  * Build e2fsprogs-udeb with -O2 on powerpc to avoid a suspected toolchain bug
+    (LP: #450214).
+
+ -- Luke Yelavich <themuso@ubuntu.com>  Sat, 24 Oct 2009 17:03:42 +1100
+
+e2fsprogs (1.41.9-1ubuntu2) karmic; urgency=low
+
+   * Applied patch (sent upstream) to ignore a future last mount, write or
+     check time by up to 24 hrs when fsck called with -p ("preen", ie.
+     fix minor problems without human intervention).  LP: #268808.
+
+ -- Scott James Remnant <scott@ubuntu.com>  Mon, 12 Oct 2009 16:35:14 +0100
+
+e2fsprogs (1.41.9-1ubuntu1) karmic; urgency=low
+
+  * Merge from Debian, remaining changes:
+    - Do not build-depend on dietlibc-dev, which is universe.
+    - Do now allow pkg-create-dbgsym to operate on this package.
+    - Use external libblkid and libuuid from util-linux, rather than
+      building our own.
+    - Do not include /etc/e2fsck.conf and remove on upgrade.
+
+  * Included a couple of extra revisions from GIT maint:
+    - (ffd8078) e2freefrag: Update manpage to include e2fsprogs version
+      and release date
+    - (31b5a2b) mke2fs.conf: Use the feature name "extent" instead of
+      "extents"
+    - (8bafedb) tune2fs: Fix "tune2fs -j <dev>" for extent-enabled
+       filesystems.  LP: #416648.
+
+ -- Scott James Remnant <scott@ubuntu.com>  Tue, 25 Aug 2009 18:34:46 +0100
+
 e2fsprogs (1.41.9-1) unstable; urgency=low
 
   * New upstream release
@@ -470,6 +735,26 @@ e2fsprogs (1.41.8-2) unstable; urgency=low
   * Don't use dietlibc when building for mips and mipsel architectures
 
  -- Theodore Y. Ts'o <tytso@mit.edu>  Mon, 20 Jul 2009 09:38:21 -0400
+
+e2fsprogs (1.41.8-1ubuntu2) karmic; urgency=low
+
+  * Remove /etc/e2fsck.conf on upgrade.
+
+ -- Scott James Remnant <scott@ubuntu.com>  Fri, 17 Jul 2009 10:31:13 +0100
+
+e2fsprogs (1.41.8-1ubuntu1) karmic; urgency=low
+
+  * Merge from Debian, remaining changes:
+    - Do not build-depend on dietlibc-dev, which is universe.
+    - Do now allow pkg-create-dbgsym to operate on this package.
+    - Use external libblkid from util-linux, rather than building our own
+      (conditional on lsb_release, debian/control mangling via m4)
+
+  * Use external libuuid from util-linux, rather than building our own.
+  * Cherry pick 9d4bade from GIT maint:
+    - filefrag: Restore "perfect" number of extents calculation for ext2/ext3
+
+ -- Scott James Remnant <scott@ubuntu.com>  Wed, 15 Jul 2009 15:58:37 +0100
 
 e2fsprogs (1.41.8-1) unstable; urgency=low
 
@@ -568,6 +853,26 @@ e2fsprogs (1.41.6-1) unstable; urgency=low
 
  -- Theodore Y. Ts'o <tytso@mit.edu>  Fri, 30 May 2009 13:26:23 -0400
 
+e2fsprogs (1.41.5-1ubuntu3) karmic; urgency=low
+
+  * debian/control.in: Add build-dependency on lsb-release.
+
+ -- Scott James Remnant <scott@ubuntu.com>  Wed, 06 May 2009 17:00:56 +0100
+
+e2fsprogs (1.41.5-1ubuntu2) karmic; urgency=low
+
+  * Use external libblkid from util-linux, rather than building our own.
+
+ -- Scott James Remnant <scott@ubuntu.com>  Wed, 29 Apr 2009 18:19:46 +0100
+
+e2fsprogs (1.41.5-1ubuntu1) karmic; urgency=low
+
+  * Merge with Debian unstable, remaining changes:
+    - Do not build-depend on dietlibc-dev, which is in universe.
+    - Do not allow pkg-create-dbgsym to operate on this package.
+
+ -- Scott James Remnant <scott@ubuntu.com>  Wed, 29 Apr 2009 12:11:35 +0100
+
 e2fsprogs (1.41.5-1) unstable; urgency=low
 
   * New upstream release
@@ -620,6 +925,14 @@ e2fsprogs (1.41.4-2) unstable; urgency=low
     filesystem via the superblock field s_kbytes_written
 
  -- Theodore Y. Ts'o <tytso@mit.edu>  Sun, 19 Apr 2009 23:05:53 -0400
+
+e2fsprogs (1.41.4-1ubuntu1) jaunty; urgency=low
+
+  * Update to new upstream release, LP: #327206.  Remaining changes:
+    - Do not build-depend on dietlibc-dev, which is in universe.
+    - Do not allow pkg-create-dbgsym to operate on this package.
+
+ -- Scott James Remnant <scott@ubuntu.com>  Thu, 12 Feb 2009 15:26:29 +0000
 
 e2fsprogs (1.41.4-1) unstable; urgency=low
 
@@ -688,6 +1001,20 @@ e2fsprogs (1.41.4-1) unstable; urgency=low
 
  -- Theodore Y. Ts'o <tytso@mit.edu>  Tue, 27 Jan 2009 11:50:49 -0500
 
+e2fsprogs (1.41.3-1ubuntu2) jaunty; urgency=low
+
+  * Install mkfs.ext4 symlink in e2fsprogs-udeb.
+
+ -- Colin Watson <cjwatson@ubuntu.com>  Thu, 08 Jan 2009 14:16:28 +0000
+
+e2fsprogs (1.41.3-1ubuntu1) intrepid; urgency=low
+
+  * Update at upstream author's suggestion, remaining changes:
+    - Do not build-depend on dietlibc-dev, which is in universe.
+    - Do not allow pkg-create-dbgsym to operate on this package.
+
+ -- Scott James Remnant <scott@ubuntu.com>  Mon, 13 Oct 2008 13:58:42 +0100
+
 e2fsprogs (1.41.3-1) unstable; urgency=low
 
   * New upstream release
@@ -709,6 +1036,20 @@ e2fsprogs (1.41.3-1) unstable; urgency=low
     fallback code works correctly.
 
  -- Theodore Y. Ts'o <tytso@mit.edu>  Sun, 12 Oct 2008 22:45:34 -0400
+
+e2fsprogs (1.41.2-1ubuntu2) intrepid; urgency=low
+
+  * Do not allow pkg-create-dbgsym to operate on this package; missing
+    from previous changelog entry thus missed out.  Oops.
+
+ -- Scott James Remnant <scott@ubuntu.com>  Mon, 06 Oct 2008 12:41:23 +0100
+
+e2fsprogs (1.41.2-1ubuntu1) intrepid; urgency=low
+
+  * Update at upstream author's suggestion, remaining change:
+    - Do not build-depend on dietlibc-dev, which is in universe.
+
+ -- Scott James Remnant <scott@ubuntu.com>  Mon, 06 Oct 2008 10:52:59 +0100
 
 e2fsprogs (1.41.2-1) unstable; urgency=low
 
@@ -831,6 +1172,28 @@ e2fsprogs (1.41.0-4) unstable; urgency=low
 
  -- Theodore Y. Ts'o <tytso@mit.edu>  Sat, 23 Aug 2008 08:56:47 -0400
 
+e2fsprogs (1.41.0-3ubuntu3) intrepid; urgency=low
+
+  * Revert previous attempt to fix FTBFS, it didn't work. Disable
+    pkg-create-dbgsym altogether. There is no way that poor pkg-create-dbgsym
+    could cope with this packages' very "custom" way of producing *-dbg.
+
+ -- Martin Pitt <martin.pitt@ubuntu.com>  Mon, 11 Aug 2008 16:31:31 +0200
+
+e2fsprogs (1.41.0-3ubuntu2) intrepid; urgency=low
+
+  * debian/rules: don't build a -dbg package for e2fsck-static, as this
+    appears to confuse the dbgsym handler on the Ubuntu buildds.
+
+ -- Steve Langasek <steve.langasek@ubuntu.com>  Fri, 08 Aug 2008 23:15:10 +0000
+
+e2fsprogs (1.41.0-3ubuntu1) intrepid; urgency=low
+
+  * Merge from Debian unstable (LP: #254152, #246461), remaining changes:
+    - Do not build-depend on dietlibc-dev, which is in universe.
+
+ -- Steve Langasek <steve.langasek@ubuntu.com>  Fri, 08 Aug 2008 20:32:11 +0000
+
 e2fsprogs (1.41.0-3) unstable; urgency=medium
 
   * Fix mips-specific FTBFS problem in debian/rules file
@@ -929,6 +1292,12 @@ e2fsprogs (1.41~WIP-2008-06-17-1) experimental; urgency=low
   * Add I/O statistics reporting to e2fsck.
 
  -- Theodore Y. Ts'o <tytso@mit.edu>  Tue, 17 Jun 2008 23:57:08 -0400
+
+e2fsprogs (1.40.11-1ubuntu1) intrepid; urgency=low
+
+  * Do not build-depend on dietlibc-dev, it's in Universe (LP: #251746).
+
+ -- Luca Falavigna <dktrkranz@ubuntu.com>  Fri, 25 Jul 2008 11:23:54 +0200
 
 e2fsprogs (1.40.11-1) unstable; urgency=low
 

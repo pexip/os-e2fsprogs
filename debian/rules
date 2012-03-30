@@ -16,6 +16,8 @@ SYS_BLKID_VER := $(shell dpkg-query -W libblkid1 | cut -f 2 | cut -b 1)
 ifeq ($(SYS_BLKID_VER),2)
 UTIL_LINUX_NG ?= yes
 endif
+# no chance that pkg-create-dbgsym can cope with this package's manual construction of -dbg
+export NO_PKG_MANGLE=1
 
 # These are used for cross-compiling and for saving the configure script
 # from having to guess our platform (since we know it already)
