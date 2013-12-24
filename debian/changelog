@@ -1,3 +1,9 @@
+e2fsprogs (1.42-1ubuntu2pexip1) pexip; urgency=low
+
+  * Prepare Pexip packaging
+
+ -- John-Mark Bell <jmb@pexip.com>  Tue, 24 Dec 2013 14:52:38 +0000
+
 e2fsprogs (1.42-1ubuntu2) precise; urgency=low
 
   * Build-depend on gettext:any instead of on gettext, so that apt-get can

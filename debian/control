@@ -1,11 +1,13 @@
 Source: e2fsprogs
 Section: admin
 Priority: required
-Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Maintainer: Pexip AS <packaging@pexip.com>
+XSBC-Pexip-Original-Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
 XSBC-Original-Maintainer: Theodore Y. Ts'o <tytso@mit.edu>
 Build-Depends: texi2html (>= 1.76), gettext:any, texinfo, pkg-config, gcc-multilib [mips mipsel], debhelper (>= 7.0), libblkid-dev (>= 2.16), uuid-dev (>= 2.16), m4
 Standards-Version: 3.9.2
 Homepage: http://e2fsprogs.sourceforge.net
+XS-Pexip-Upstream: http://archive.ubuntu.com/ubuntu/ precise
 
 Package: e2fsck-static
 Priority: optional
