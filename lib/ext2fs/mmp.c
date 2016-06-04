@@ -4,14 +4,16 @@
  * Copyright (C) 2011 Whamcloud, Inc.
  *
  * %Begin-Header%
- * This file may be redistributed under the terms of the GNU Public
- * License.
+ * This file may be redistributed under the terms of the GNU Library
+ * General Public License, version 2.
  * %End-Header%
  */
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+
+#include "config.h"
 
 #if HAVE_UNISTD_H
 #include <unistd.h>
@@ -25,20 +27,6 @@
 #include "ext2fs/ext2_fs.h"
 #include "ext2fs/ext2fs.h"
 
-static int mmp_pagesize(void)
-{
-#ifdef _SC_PAGESIZE
-	int sysval = sysconf(_SC_PAGESIZE);
-	if (sysval > 0)
-		return sysval;
-#endif /* _SC_PAGESIZE */
-#ifdef HAVE_GETPAGESIZE
-	return getpagesize();
-#else
-	return 4096;
-#endif
-}
-
 #ifndef O_DIRECT
 #define O_DIRECT 0
 #endif
@@ -49,22 +37,8 @@ errcode_t ext2fs_mmp_read(ext2_filsys fs, blk64_t mmp_blk, void *buf)
 	errcode_t retval = 0;
 
 	if ((mmp_blk <= fs->super->s_first_data_block) ||
-	    (mmp_blk >= fs->super->s_blocks_count))
+	    (mmp_blk >= ext2fs_blocks_count(fs->super)))
 		return EXT2_ET_MMP_BAD_BLOCK;
-
-	if (fs->mmp_cmp == NULL) {
-		/* O_DIRECT in linux 2.4: page aligned
-		 * O_DIRECT in linux 2.6: sector aligned
-		 * A filesystem cannot be created with blocksize < sector size,
-		 * or with blocksize > page_size. */
-		int bufsize = fs->blocksize;
-
-		if (bufsize < mmp_pagesize())
-			bufsize = mmp_pagesize();
-		retval = ext2fs_get_memalign(bufsize, bufsize, &fs->mmp_cmp);
-		if (retval)
-			return retval;
-	}
 
 	/* ext2fs_open() reserves fd0,1,2 to avoid stdio collision, so checking
 	 * mmp_fd <= 0 is OK to validate that the fd is valid.  This opens its
@@ -79,7 +53,17 @@ errcode_t ext2fs_mmp_read(ext2_filsys fs, blk64_t mmp_blk, void *buf)
 		}
 	}
 
-	if (ext2fs_llseek(fs->mmp_fd, mmp_blk * fs->blocksize, SEEK_SET) !=
+	if (fs->mmp_cmp == NULL) {
+		int align = ext2fs_get_dio_alignment(fs->mmp_fd);
+
+		retval = ext2fs_get_memalign(fs->blocksize, align,
+					     &fs->mmp_cmp);
+		if (retval)
+			return retval;
+	}
+
+	if ((blk64_t) ext2fs_llseek(fs->mmp_fd, mmp_blk * fs->blocksize,
+				    SEEK_SET) !=
 	    mmp_blk * fs->blocksize) {
 		retval = EXT2_ET_LLSEEK_FAILED;
 		goto out;
@@ -143,7 +127,7 @@ errcode_t ext2fs_mmp_write(ext2_filsys fs, blk64_t mmp_blk, void *buf)
 #define rand()		random()
 #endif
 
-unsigned ext2fs_mmp_new_seq()
+unsigned ext2fs_mmp_new_seq(void)
 {
 	unsigned new_seq;
 	struct timeval tv;

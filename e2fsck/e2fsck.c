@@ -187,6 +187,9 @@ void e2fsck_free_context(e2fsck_t ctx)
 	if (ctx->device_name)
 		ext2fs_free_mem(&ctx->device_name);
 
+	if (ctx->log_fn)
+		free(ctx->log_fn);
+
 	ext2fs_free_mem(&ctx);
 }
 
@@ -196,7 +199,7 @@ void e2fsck_free_context(e2fsck_t ctx)
  */
 typedef void (*pass_t)(e2fsck_t ctx);
 
-pass_t e2fsck_passes[] = {
+static pass_t e2fsck_passes[] = {
 	e2fsck_pass1, e2fsck_pass2, e2fsck_pass3, e2fsck_pass4,
 	e2fsck_pass5, 0 };
 

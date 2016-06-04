@@ -104,12 +104,12 @@ static errcode_t alloc_icount(ext2_filsys fs, int flags, ext2_icount_t *ret)
 		return retval;
 	memset(icount, 0, sizeof(struct ext2_icount));
 
-	retval = ext2fs_allocate_inode_bitmap(fs, 0, &icount->single);
+	retval = ext2fs_allocate_inode_bitmap(fs, "icount", &icount->single);
 	if (retval)
 		goto errout;
 
 	if (flags & EXT2_ICOUNT_OPT_INCREMENT) {
-		retval = ext2fs_allocate_inode_bitmap(fs, 0,
+		retval = ext2fs_allocate_inode_bitmap(fs, "icount_inc",
 						      &icount->multiple);
 		if (retval)
 			goto errout;
@@ -181,6 +181,7 @@ errcode_t ext2fs_create_icount_tdb(ext2_filsys fs, char *tdb_dir,
 	errcode_t	retval;
 	char 		*fn, uuid[40];
 	ext2_ino_t	num_inodes;
+	mode_t		save_umask;
 	int		fd;
 
 	retval = alloc_icount(fs, flags,  &icount);
@@ -192,8 +193,14 @@ errcode_t ext2fs_create_icount_tdb(ext2_filsys fs, char *tdb_dir,
 		goto errout;
 	uuid_unparse(fs->super->s_uuid, uuid);
 	sprintf(fn, "%s/%s-icount-XXXXXX", tdb_dir, uuid);
+	icount->tdb_fn = fn;
+	save_umask = umask(077);
 	fd = mkstemp(fn);
-
+	if (fd < 0) {
+		retval = errno;
+		goto errout;
+	}
+	umask(save_umask);
 	/*
 	 * This is an overestimate of the size that we will need; the
 	 * ideal value is the number of used inodes with a count
@@ -204,18 +211,15 @@ errcode_t ext2fs_create_icount_tdb(ext2_filsys fs, char *tdb_dir,
 	 */
 	num_inodes = fs->super->s_inodes_count - fs->super->s_free_inodes_count;
 
-	icount->tdb_fn = fn;
 	icount->tdb = tdb_open(fn, num_inodes, TDB_NOLOCK | TDB_NOSYNC,
 			       O_RDWR | O_CREAT | O_TRUNC, 0600);
-	if (icount->tdb) {
-		close(fd);
-		*ret = icount;
-		return 0;
-	}
-
-	retval = errno;
 	close(fd);
-
+	if (icount->tdb == NULL) {
+		retval = errno;
+		goto errout;
+	}
+	*ret = icount;
+	return 0;
 errout:
 	ext2fs_free_icount(icount);
 	return(retval);
@@ -351,9 +355,7 @@ static struct ext2_icount_el *insert_icount_el(ext2_icount_t icount,
 static struct ext2_icount_el *get_icount_el(ext2_icount_t icount,
 					    ext2_ino_t ino, int create)
 {
-	float	range;
 	int	low, high, mid;
-	ext2_ino_t	lowval, highval;
 
 	if (!icount || !icount->list)
 		return 0;

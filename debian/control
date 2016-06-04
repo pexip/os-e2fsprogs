@@ -1,11 +1,11 @@
 Source: e2fsprogs
 Section: admin
 Priority: required
-Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
-XSBC-Original-Maintainer: Theodore Y. Ts'o <tytso@mit.edu>
-Build-Depends: texi2html (>= 1.76), gettext:any, texinfo, pkg-config, gcc-multilib [mips mipsel], debhelper (>= 7.0), libblkid-dev (>= 2.16), uuid-dev (>= 2.16), m4
-Standards-Version: 3.9.2
+Maintainer: Theodore Y. Ts'o <tytso@mit.edu>
+Build-Depends: gettext, texinfo, pkg-config, dietlibc-dev (>> 0.30) [alpha amd64 arm hppa i386 ia64 powerpc ppc64 s390 sparc], gcc-multilib [mips mipsel], debhelper (>= 7.0), libblkid-dev (>= 2.16), uuid-dev (>= 2.16), m4
+Standards-Version: 3.9.5
 Homepage: http://e2fsprogs.sourceforge.net
+
 
 Package: e2fsck-static
 Priority: optional
@@ -77,6 +77,7 @@ Description: command-line interface parsing library - headers and static librari
  .
  This package contains the development environment for the ss library.
 
+
 Package: e2fsprogs-udeb
 XC-Package-Type: udeb
 Section: debian-installer
@@ -127,6 +128,7 @@ Description: ext2/ext3/ext4 file system libraries - headers and static libraries
 Package: e2fsprogs
 Essential: yes
 Pre-Depends: ${shlibs:Depends}, ${misc:Depends}, util-linux (>= 2.15~rc1-1)
+Multi-Arch: foreign
 Suggests: gpart, parted, e2fsck-static
 Conflicts: dump (<< 0.4b4-4), quota (<< 1.55-8.1), initscripts (<< 2.85-4), sysvinit (<< 2.85-4)
 Replaces: hurd (<= 20040301-1), libblkid1 (<< 1.38+1.39-WIP-2005.12.10-2), libuuid1 (<< 1.38+1.39-WIP-2005.12.10-2)
@@ -137,7 +139,8 @@ Description: ext2/ext3/ext4 file system utilities
  hard disks on Debian and other Linux systems.
  .
  This package contains programs for creating, checking, and maintaining
- ext2/3/4-based file systems.
+ ext2/3/4-based file systems.  It also includes the "badblocks" program,
+ which can be used to scan for bad blocks on a disk or other storage device.
 
 Package: e2fsprogs-dbg
 Section: debug

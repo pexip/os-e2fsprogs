@@ -29,26 +29,45 @@ man5dir = $(mandir)/man5
 man8dir = $(mandir)/man8
 infodir = @infodir@
 datadir = @datadir@
+pkgconfigdir = $(libdir)/pkgconfig
 
 @SET_MAKE@
 
 @ifGNUmake@ V =
 @ifGNUmake@ ifeq ($(strip $(V)),)
 @ifGNUmake@ #  E = @echo
+@ifGNUmake@ #  ES = echo
 @ifGNUmake@ #  Q = @
 @ifGNUmake@    E = @E@
+@ifGNUmake@    ES = @ES@
 @ifGNUmake@    Q = @Q@
 @ifGNUmake@ else
 @ifGNUmake@    E = @\#
+@ifGNUmake@    ES = \#
 @ifGNUmake@    Q =
 @ifGNUmake@ endif
 
 @ifNotGNUmake@ E = @E@
+@ifNotGNUmake@ ES = @ES@
 @ifNotGNUmake@ Q = @Q@
+
+@ifGNUmake@ CHECK=sparse
+@ifGNUmake@ CHECK_OPTS=-Wsparse-all -Wno-transparent-union -Wno-return-void -Wno-undef -Wno-non-pointer-null
+@ifGNUmake@ ifeq ("$(C)", "2")
+@ifGNUmake@   CHECK_CMD=$(CHECK) $(CHECK_OPTS) -Wbitwise -D__CHECK_ENDIAN__
+@ifGNUmake@ else
+@ifGNUmake@   ifeq ("$(C)", "1")
+@ifGNUmake@     CHECK_CMD=$(CHECK) $(CHECK_OPTS)
+@ifGNUmake@    else
+@ifGNUmake@     CHECK_CMD=@true
+@ifGNUmake@   endif
+@ifGNUmake@ endif
+
+@ifNotGNUmake@ CHECK_CMD=@true
 
 CC = @CC@
 BUILD_CC = @BUILD_CC@
-CFLAGS = @CFLAGS@
+CFLAGS = @CFLAGS@ @DEFS@
 CPPFLAGS = @INCLUDES@
 ALL_CFLAGS = $(CPPFLAGS) $(CFLAGS)
 LDFLAGS = @LDFLAGS@
@@ -92,6 +111,7 @@ LIBUUID = @LIBUUID@ @SOCKET_LIB@
 LIBQUOTA = @STATIC_LIBQUOTA@
 LIBBLKID = @LIBBLKID@ @PRIVATE_LIBS_CMT@ $(LIBUUID)
 LIBINTL = @LIBINTL@
+SYSLIBS = @LIBS@
 DEPLIBSS = $(LIB)/libss@LIB_EXT@
 DEPLIBCOM_ERR = $(LIB)/libcom_err@LIB_EXT@
 DEPLIBUUID = @DEPLIBUUID@
@@ -134,6 +154,23 @@ DEP_SUBSTITUTE= $(top_builddir)/util/subst $(SUBST_CONF)
 
 $(top_builddir)/util/subst:
 	cd $(top_builddir)/util ; $(MAKE) subst
+
+#
+# Script for installing symlinks (for shared libraries)
+#
+$(top_builddir)/util/install-symlink: $(top_srcdir)/util/install-symlink.in \
+			      $(top_builddir)/config.status
+	cd $(top_builddir); CONFIG_FILES=util/install-symlink ./config.status
+	chmod +x $(top_builddir)/util/install-symlink
+
+$(top_builddir)/util/symlinks:
+	cd $(top_builddir)/util ; $(MAKE) symlinks
+
+INSTALL_SYMLINK = /bin/sh $(top_builddir)/util/install-symlink \
+			@SYMLINK_RELATIVE@ \
+			--symlinks=$(top_builddir)/util/symlinks
+DEP_INSTALL_SYMLINK = $(top_builddir)/util/install-symlink \
+			$(top_builddir)/util/symlinks
 
 #
 # Warning flags
@@ -180,8 +217,9 @@ MANMODE=	444
 
 DEP_LIB_MAKEFILES = $(top_srcdir)/lib/Makefile.library \
 	$(top_srcdir)/lib/Makefile.elf-lib  \
-	$(top_srcdir)/lib/Makefile.bsd-lib $(top_srcdir)/lib/Makefile.darwin-lib \
-	$(top_srcdir)/lib/Makefile.solaris-lib $(top_srcdir)/lib/Makefile.checker \
+	$(top_srcdir)/lib/Makefile.bsd-lib \
+	$(top_srcdir)/lib/Makefile.darwin-lib \
+	$(top_srcdir)/lib/Makefile.solaris-lib \
 	$(top_srcdir)/lib/Makefile.profile
 
 $(top_builddir)/config.status: $(top_srcdir)/configure
@@ -213,13 +251,21 @@ Makefile: $(srcdir)/Makefile.in $(top_builddir)/MCONFIG \
 @MAINTAINER_CMT@$(top_srcdir)/configure: $(top_srcdir)/configure.in
 @MAINTAINER_CMT@	cd $(top_srcdir) && autoheader && autoconf
 
+coverage.txt: Makefile $(SRCS)
+	if test -n "$(SRCS)"; then \
+		gcov -s $(top_srcdir) -o . $(SRCS) > coverage.txt 2>&1 ; \
+	fi
+
+clean::
+	$(RM) -f *.gcda *.gcov *.gcno coverage.txt
+
 #
 # Make depend magic...
 #
 
 .depend: Makefile $(SRCS) $(top_srcdir)/depfix.sed $(top_srcdir)/wordwrap.pl
 	if test -n "$(SRCS)" ; then \
-		$(CC) -M $(ALL_CFLAGS) $(SRCS) | \
+		$(CC) -M $(ALL_CFLAGS) $(DEPEND_CFLAGS) $(SRCS) | \
 			$(SED) -f $(top_srcdir)/depfix.sed \
 			    -e 's; $(srcdir)/; $$(srcdir)/;g' \
 			    -e 's; $(top_srcdir)/; $$(top_srcdir)/;g' \

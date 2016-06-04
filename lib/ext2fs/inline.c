@@ -11,6 +11,9 @@
  * %End-Header%
  */
 
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE 600	/* for posix_memalign() */
+#endif
 
 #include "config.h"
 #include <stdio.h>
@@ -26,6 +29,9 @@
 #if HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif
+#if HAVE_MALLOC_H
+#include <malloc.h>
+#endif
 
 #include "ext2_fs.h"
 #define INCLUDE_INLINE_FUNCS
@@ -40,11 +46,12 @@ errcode_t ext2fs_get_memalign(unsigned long size,
 			      unsigned long align, void *ptr)
 {
 	errcode_t retval;
+	void **p = ptr;
 
-	if (align == 0)
+	if (align < 8)
 		align = 8;
 #ifdef HAVE_POSIX_MEMALIGN
-	retval = posix_memalign((void **) ptr, align, size);
+	retval = posix_memalign(p, align, size);
 	if (retval) {
 		if (retval == ENOMEM)
 			return EXT2_ET_NO_MEMORY;
@@ -52,17 +59,63 @@ errcode_t ext2fs_get_memalign(unsigned long size,
 	}
 #else
 #ifdef HAVE_MEMALIGN
-	*ptr = memalign(align, size);
-	if (*ptr == NULL) {
+	*p = memalign(align, size);
+	if (*p == NULL) {
 		if (errno)
 			return errno;
 		else
 			return EXT2_ET_NO_MEMORY;
 	}
 #else
-#error memalign or posix_memalign must be defined!
+#ifdef HAVE_VALLOC
+	if (align > sizeof(long long))
+		*p = valloc(size);
+	else
+#endif
+		*p = malloc(size);
+	if ((unsigned long) *p & (align - 1)) {
+		free(*p);
+		*p = 0;
+	}
+	if (*p == 0)
+		return EXT2_ET_NO_MEMORY;
 #endif
 #endif
 	return 0;
 }
 
+#ifdef DEBUG
+static int isaligned(void *ptr, unsigned long align)
+{
+	return (((unsigned long) ptr & (align - 1)) == 0);
+}
+
+static errcode_t test_memalign(unsigned long align)
+{
+	void *ptr = 0;
+	errcode_t retval;
+
+	retval = ext2fs_get_memalign(32, align, &ptr);
+	if (!retval && !isaligned(ptr, align))
+		retval = EINVAL;
+	free(ptr);
+	printf("tst_memalign(%lu) is %s\n", align,
+	       retval ? error_message(retval) : "OK");
+	return retval;
+}
+
+int main(int argc, char **argv)
+{
+	int err = 0;
+
+	if (test_memalign(4))
+		err++;
+	if (test_memalign(32))
+		err++;
+	if (test_memalign(1024))
+		err++;
+	if (test_memalign(4096))
+		err++;
+	return err;
+}
+#endif

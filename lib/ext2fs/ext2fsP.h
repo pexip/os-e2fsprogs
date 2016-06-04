@@ -66,7 +66,7 @@ struct dir_context {
  */
 struct ext2_inode_cache {
 	void *				buffer;
-	blk_t				buffer_blk;
+	blk64_t				buffer_blk;
 	int				cache_last;
 	int				cache_size;
 	int				refcount;
@@ -109,8 +109,6 @@ extern void ext2fs_numeric_progress_close(ext2_filsys fs,
  * 64-bit bitmap support
  */
 
-#define EXT2FS_BMAP64_BITARRAY	1
-
 extern errcode_t ext2fs_alloc_generic_bmap(ext2_filsys fs, errcode_t magic,
 					   int type, __u64 start, __u64 end,
 					   __u64 real_end,
@@ -143,3 +141,7 @@ extern errcode_t ext2fs_get_generic_bmap_range(ext2fs_generic_bitmap bitmap,
 extern void ext2fs_warn_bitmap32(ext2fs_generic_bitmap bitmap,const char *func);
 
 extern int ext2fs_mem_is_zero(const char *mem, size_t len);
+
+extern int ext2fs_file_block_offset_too_big(ext2_filsys fs,
+					    struct ext2_inode *inode,
+					    blk64_t offset);
