@@ -6,9 +6,6 @@
 #include "config.h"
 #include <sys/types.h>
 #include <sys/stat.h>
-#ifdef HAVE_SYS_QUOTA_H
-#include <sys/quota.h>
-#endif
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
@@ -18,17 +15,16 @@
 #include "ext2fs/ext2fs.h"
 #include "e2p/e2p.h"
 
-#include "quota.h"
 #include "quotaio.h"
 #include "quotaio_v2.h"
 #include "quotaio_tree.h"
-#include "mkquota.h"
 #include "common.h"
 
 /* Needed for architectures where sizeof(int) != sizeof(void *) */
 #define UINT_TO_VOIDPTR(val)  ((void *)(intptr_t)(val))
 #define VOIDPTR_TO_UINT(ptr)  ((unsigned int)(intptr_t)(ptr))
 
+#if DEBUG_QUOTA
 static void print_inode(struct ext2_inode *inode)
 {
 	if (!inode)
@@ -49,17 +45,21 @@ static void print_inode(struct ext2_inode *inode)
 	return;
 }
 
-int quota_is_on(ext2_filsys fs, int type)
+static void print_dquot(const char *desc, struct dquot *dq)
 {
-	char tmp[1024];
-	qid_t id = (type == USRQUOTA) ? getuid() : getgid();
-
-#ifdef HAVE_QUOTACTL
-	if (!quotactl(QCMD(Q_V2_GETQUOTA, type), fs->device_name, id, tmp))
-		return 1;
-#endif
-	return 0;
+	if (desc)
+		fprintf(stderr, "%s: ", desc);
+	fprintf(stderr, "%u %lld:%lld:%lld %lld:%lld:%lld\n",
+		dq->dq_id, dq->dq_dqb.dqb_curspace,
+		dq->dq_dqb.dqb_bsoftlimit, dq->dq_dqb.dqb_bhardlimit,
+		dq->dq_dqb.dqb_curinodes,
+		dq->dq_dqb.dqb_isoftlimit, dq->dq_dqb.dqb_ihardlimit);
 }
+#else
+static void print_dquot(const char *desc, struct dquot *dq)
+{
+}
+#endif
 
 /*
  * Returns 0 if not able to find the quota file, otherwise returns its
@@ -74,7 +74,7 @@ int quota_file_exists(ext2_filsys fs, int qtype, int fmt)
 	if (qtype >= MAXQUOTAS)
 		return -EINVAL;
 
-	quota_get_qf_name(qtype, fmt, qf_name);
+	quota_get_qf_name(qtype, QFMT_VFS_V1, qf_name);
 
 	ret = ext2fs_lookup(fs, EXT2_ROOT_INO, qf_name, strlen(qf_name), 0,
 			    &ino);
@@ -103,8 +103,13 @@ void quota_set_sb_inum(ext2_filsys fs, ext2_ino_t ino, int qtype)
 errcode_t quota_remove_inode(ext2_filsys fs, int qtype)
 {
 	ext2_ino_t qf_ino;
+	errcode_t	retval;
 
-	ext2fs_read_bitmaps(fs);
+	retval = ext2fs_read_bitmaps(fs);
+	if (retval) {
+		log_err("Couldn't read bitmaps: %s", error_message(retval));
+		return retval;
+	}
 	qf_ino = (qtype == USRQUOTA) ? fs->super->s_usr_quota_inum :
 		fs->super->s_grp_quota_inum;
 	quota_set_sb_inum(fs, 0, qtype);
@@ -113,7 +118,12 @@ errcode_t quota_remove_inode(ext2_filsys fs, int qtype)
 		quota_inode_truncate(fs, qf_ino);
 
 	ext2fs_mark_super_dirty(fs);
-	ext2fs_write_bitmaps(fs);
+	fs->flags &= ~EXT2_FLAG_SUPER_ONLY;
+	retval = ext2fs_write_bitmaps(fs);
+	if (retval) {
+		log_err("Couldn't write bitmaps: %s", error_message(retval));
+		return retval;
+	}
 	return 0;
 }
 
@@ -125,6 +135,7 @@ static void write_dquots(dict_t *dict, struct quota_handle *qh)
 	for (n = dict_first(dict); n; n = dict_next(dict, n)) {
 		dq = dnode_get(n);
 		if (dq) {
+			print_dquot("write", dq);
 			dq->dq_h = qh;
 			update_grace_times(dq);
 			qh->qh_ops->commit_dquot(dq);
@@ -137,7 +148,7 @@ errcode_t quota_write_inode(quota_ctx_t qctx, int qtype)
 	int		retval = 0, i;
 	dict_t		*dict;
 	ext2_filsys	fs;
-	struct quota_handle *h;
+	struct quota_handle *h = NULL;
 	int		fmt = QFMT_VFS_V1;
 
 	if (!qctx)
@@ -146,11 +157,16 @@ errcode_t quota_write_inode(quota_ctx_t qctx, int qtype)
 	fs = qctx->fs;
 	retval = ext2fs_get_mem(sizeof(struct quota_handle), &h);
 	if (retval) {
-		log_err("Unable to allocate quota handle", "");
+		log_err("Unable to allocate quota handle: %s",
+			error_message(retval));
 		goto out;
 	}
 
-	ext2fs_read_bitmaps(fs);
+	retval = ext2fs_read_bitmaps(fs);
+	if (retval) {
+		log_err("Couldn't read bitmaps: %s", error_message(retval));
+		goto out;
+	}
 
 	for (i = 0; i < MAXQUOTAS; i++) {
 		if ((qtype != -1) && (i != qtype))
@@ -162,12 +178,12 @@ errcode_t quota_write_inode(quota_ctx_t qctx, int qtype)
 
 		retval = quota_file_create(h, fs, i, fmt);
 		if (retval < 0) {
-			log_err("Cannot initialize io on quotafile", "");
+			log_err("Cannot initialize io on quotafile");
 			continue;
 		}
 
 		write_dquots(dict, h);
-		retval = quota_file_close(h);
+		retval = quota_file_close(qctx, h);
 		if (retval < 0) {
 			log_err("Cannot finish IO on new quotafile: %s",
 				strerror(errno));
@@ -184,7 +200,11 @@ errcode_t quota_write_inode(quota_ctx_t qctx, int qtype)
 		fs->flags &= ~EXT2_FLAG_SUPER_ONLY;
 	}
 
-	ext2fs_write_bitmaps(fs);
+	retval = ext2fs_write_bitmaps(fs);
+	if (retval) {
+		log_err("Couldn't write bitmaps: %s", error_message(retval));
+		goto out;
+	}
 out:
 	if (h)
 		ext2fs_free_mem(&h);
@@ -202,7 +222,12 @@ static int dict_uint_cmp(const void *a, const void *b)
 	c = VOIDPTR_TO_UINT(a);
 	d = VOIDPTR_TO_UINT(b);
 
-	return c - d;
+	if (c == d)
+		return 0;
+	else if (c > d)
+		return 1;
+	else
+		return -1;
 }
 
 static inline qid_t get_qid(struct ext2_inode *inode, int qtype)
@@ -226,23 +251,26 @@ static void quota_dnode_free(dnode_t *node,
  */
 errcode_t quota_init_context(quota_ctx_t *qctx, ext2_filsys fs, int qtype)
 {
-	int	i, err = 0;
+	errcode_t err;
 	dict_t	*dict;
 	quota_ctx_t ctx;
+	int	i;
 
 	err = ext2fs_get_mem(sizeof(struct quota_ctx), &ctx);
 	if (err) {
-		log_err("Failed to allocate quota context", "");
+		log_err("Failed to allocate quota context");
 		return err;
 	}
 
 	memset(ctx, 0, sizeof(struct quota_ctx));
 	for (i = 0; i < MAXQUOTAS; i++) {
+		ctx->quota_file[i] = NULL;
 		if ((qtype != -1) && (i != qtype))
 			continue;
 		err = ext2fs_get_mem(sizeof(dict_t), &dict);
 		if (err) {
-			log_err("Failed to allocate dictionary", "");
+			log_err("Failed to allocate dictionary");
+			quota_release_context(&ctx);
 			return err;
 		}
 		ctx->quota_dict[i] = dict;
@@ -257,6 +285,7 @@ errcode_t quota_init_context(quota_ctx_t *qctx, ext2_filsys fs, int qtype)
 
 void quota_release_context(quota_ctx_t *qctx)
 {
+	errcode_t err;
 	dict_t	*dict;
 	int	i;
 	quota_ctx_t ctx;
@@ -271,6 +300,14 @@ void quota_release_context(quota_ctx_t *qctx)
 		if (dict) {
 			dict_free_nodes(dict);
 			free(dict);
+		}
+		if (ctx->quota_file[i]) {
+			err = quota_file_close(ctx, ctx->quota_file[i]);
+			if (err) {
+				log_err("Cannot close quotafile: %s",
+					strerror(errno));
+				ext2fs_free_mem(&ctx->quota_file[i]);
+			}
 		}
 	}
 	*qctx = NULL;
@@ -287,7 +324,7 @@ static struct dquot *get_dq(dict_t *dict, __u32 key)
 		dq = dnode_get(n);
 	else {
 		if (ext2fs_get_mem(sizeof(struct dquot), &dq)) {
-			log_err("Unable to allocate dquot", "");
+			log_err("Unable to allocate dquot");
 			return NULL;
 		}
 		memset(dq, 0, sizeof(struct dquot));
@@ -402,7 +439,9 @@ errcode_t quota_compute_usage(quota_ctx_t qctx)
 		}
 		if (ino == 0)
 			break;
-		if (inode.i_links_count) {
+		if (inode.i_links_count &&
+		    (ino == EXT2_ROOT_INO ||
+		     ino >= EXT2_FIRST_INODE(fs->super))) {
 			space = ext2fs_inode_i_blocks(fs, &inode) << 9;
 			quota_data_add(qctx, &inode, ino, space);
 			quota_data_inodes(qctx, &inode, ino, +1);
@@ -415,29 +454,49 @@ errcode_t quota_compute_usage(quota_ctx_t qctx)
 }
 
 struct scan_dquots_data {
-	quota_ctx_t         qctx;
-	int                 limit_only; /* read limit only */
+	dict_t		*quota_dict;
+	int             update_limits; /* update limits from disk */
+	int		update_usage;
+	int		usage_is_inconsistent;
 };
 
 static int scan_dquots_callback(struct dquot *dquot, void *cb_data)
 {
-	struct scan_dquots_data *scan_data =
-		(struct scan_dquots_data *)cb_data;
-	quota_ctx_t qctx = scan_data->qctx;
+	struct scan_dquots_data *scan_data = cb_data;
+	dict_t *quota_dict = scan_data->quota_dict;
 	struct dquot *dq;
 
-	dq = get_dq(qctx->quota_dict[dquot->dq_h->qh_type], dquot->dq_id);
-
+	dq = get_dq(quota_dict, dquot->dq_id);
 	dq->dq_id = dquot->dq_id;
-	if (scan_data->limit_only) {
-		dq->dq_dqb.u.v2_mdqb.dqb_off = dquot->dq_dqb.u.v2_mdqb.dqb_off;
+	dq->dq_flags |= DQF_SEEN;
+
+	print_dquot("mem", dq);
+	print_dquot("dsk", dquot);
+
+	/* Check if there is inconsistancy. */
+	if (dq->dq_dqb.dqb_curspace != dquot->dq_dqb.dqb_curspace ||
+	    dq->dq_dqb.dqb_curinodes != dquot->dq_dqb.dqb_curinodes) {
+		scan_data->usage_is_inconsistent = 1;
+		fprintf(stderr, "[QUOTA WARNING] Usage inconsistent for ID %d:"
+			"actual (%llu, %llu) != expected (%llu, %llu)\n",
+			dq->dq_id, (long long)dq->dq_dqb.dqb_curspace,
+			(long long)dq->dq_dqb.dqb_curinodes,
+			(long long)dquot->dq_dqb.dqb_curspace,
+			(long long)dquot->dq_dqb.dqb_curinodes);
+	}
+
+	if (scan_data->update_limits) {
 		dq->dq_dqb.dqb_ihardlimit = dquot->dq_dqb.dqb_ihardlimit;
 		dq->dq_dqb.dqb_isoftlimit = dquot->dq_dqb.dqb_isoftlimit;
 		dq->dq_dqb.dqb_bhardlimit = dquot->dq_dqb.dqb_bhardlimit;
 		dq->dq_dqb.dqb_bsoftlimit = dquot->dq_dqb.dqb_bsoftlimit;
-	} else {
-		dq->dq_dqb = dquot->dq_dqb;
 	}
+
+	if (scan_data->update_usage) {
+		dq->dq_dqb.dqb_curspace = dquot->dq_dqb.dqb_curspace;
+		dq->dq_dqb.dqb_curinodes = dquot->dq_dqb.dqb_curinodes;
+	}
+
 	return 0;
 }
 
@@ -445,12 +504,13 @@ static int scan_dquots_callback(struct dquot *dquot, void *cb_data)
  * Read all dquots from quota file into memory
  */
 static errcode_t quota_read_all_dquots(struct quota_handle *qh,
-                                       quota_ctx_t qctx, int limit_only)
+                                       quota_ctx_t qctx, int update_limits)
 {
 	struct scan_dquots_data scan_data;
 
-	scan_data.qctx = qctx;
-	scan_data.limit_only = limit_only;
+	scan_data.quota_dict = qctx->quota_dict[qh->qh_type];
+	scan_data.update_limits = update_limits;
+	scan_data.update_usage = 0;
 
 	return qh->qh_ops->scan_dquots(qh, scan_dquots_callback, &scan_data);
 }
@@ -458,6 +518,7 @@ static errcode_t quota_read_all_dquots(struct quota_handle *qh,
 /*
  * Write all memory dquots into quota file
  */
+#if 0 /* currently unused, but may be useful in the future? */
 static errcode_t quota_write_all_dquots(struct quota_handle *qh,
                                         quota_ctx_t qctx)
 {
@@ -472,11 +533,12 @@ static errcode_t quota_write_all_dquots(struct quota_handle *qh,
 	ext2fs_write_bitmaps(qctx->fs);
 	return 0;
 }
+#endif
 
 /*
- * Update usage of in quota file, limits keep unchaged
+ * Updates the in-memory quota limits from the given quota inode.
  */
-errcode_t quota_update_inode(quota_ctx_t qctx, ext2_ino_t qf_ino, int type)
+errcode_t quota_update_limits(quota_ctx_t qctx, ext2_ino_t qf_ino, int type)
 {
 	struct quota_handle *qh;
 	errcode_t err;
@@ -486,20 +548,19 @@ errcode_t quota_update_inode(quota_ctx_t qctx, ext2_ino_t qf_ino, int type)
 
 	err = ext2fs_get_mem(sizeof(struct quota_handle), &qh);
 	if (err) {
-		log_err("Unable to allocate quota handle", "");
+		log_err("Unable to allocate quota handle");
 		return err;
 	}
 
-	err = quota_file_open(qh, qctx->fs, qf_ino, type, -1, EXT2_FILE_WRITE);
+	err = quota_file_open(qctx, qh, qf_ino, type, -1, 0);
 	if (err) {
-		log_err("Open quota file failed", "");
+		log_err("Open quota file failed");
 		goto out;
 	}
 
 	quota_read_all_dquots(qh, qctx, 1);
-	quota_write_all_dquots(qh, qctx);
 
-	err = quota_file_close(qh);
+	err = quota_file_close(qctx, qh);
 	if (err) {
 		log_err("Cannot finish IO on new quotafile: %s",
 			strerror(errno));
@@ -508,5 +569,62 @@ errcode_t quota_update_inode(quota_ctx_t qctx, ext2_ino_t qf_ino, int type)
 	}
 out:
 	ext2fs_free_mem(&qh);
+	return err;
+}
+
+/*
+ * Compares the measured quota in qctx->quota_dict with that in the quota inode
+ * on disk and updates the limits in qctx->quota_dict. 'usage_inconsistent' is
+ * set to 1 if the supplied and on-disk quota usage values are not identical.
+ */
+errcode_t quota_compare_and_update(quota_ctx_t qctx, int qtype,
+				   int *usage_inconsistent)
+{
+	struct quota_handle qh;
+	struct scan_dquots_data scan_data;
+	struct dquot *dq;
+	dnode_t *n;
+	dict_t *dict = qctx->quota_dict[qtype];
+	errcode_t err = 0;
+
+	if (!dict)
+		goto out;
+
+	err = quota_file_open(qctx, &qh, 0, qtype, -1, 0);
+	if (err) {
+		log_err("Open quota file failed");
+		goto out;
+	}
+
+	scan_data.quota_dict = qctx->quota_dict[qtype];
+	scan_data.update_limits = 1;
+	scan_data.update_usage = 0;
+	scan_data.usage_is_inconsistent = 0;
+	err = qh.qh_ops->scan_dquots(&qh, scan_dquots_callback, &scan_data);
+	if (err) {
+		log_err("Error scanning dquots");
+		goto out_close_qh;
+	}
+
+	for (n = dict_first(dict); n; n = dict_next(dict, n)) {
+		dq = dnode_get(n);
+		if (!dq)
+			continue;
+		if ((dq->dq_flags & DQF_SEEN) == 0) {
+			fprintf(stderr, "[QUOTA WARNING] "
+				"Missing quota entry ID %d\n", dq->dq_id);
+			scan_data.usage_is_inconsistent = 1;
+		}
+	}
+	*usage_inconsistent = scan_data.usage_is_inconsistent;
+
+out_close_qh:
+	err = quota_file_close(qctx, &qh);
+	if (err) {
+		log_err("Cannot close quotafile: %s", error_message(errno));
+		if (qh.qh_qf.e2_file)
+			ext2fs_file_close(qh.qh_qf.e2_file);
+	}
+out:
 	return err;
 }

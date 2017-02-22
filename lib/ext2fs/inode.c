@@ -157,8 +157,8 @@ errcode_t ext2fs_open_inode_scan(ext2_filsys fs, int buffer_blocks,
 			 (fs->blocksize / scan->inode_size - 1)) *
 			scan->inode_size / fs->blocksize;
 	}
-	retval = ext2fs_get_memalign(scan->inode_buffer_blocks * fs->blocksize,
-				     fs->blocksize, &scan->inode_buffer);
+	retval = io_channel_alloc_buf(fs->io, scan->inode_buffer_blocks,
+				      &scan->inode_buffer);
 	scan->done_group = 0;
 	scan->done_group_data = 0;
 	scan->bad_block_ptr = 0;
@@ -270,9 +270,9 @@ errcode_t ext2fs_inode_scan_goto_blockgroup(ext2_inode_scan scan,
  * increasing order.
  */
 static errcode_t check_for_inode_bad_blocks(ext2_inode_scan scan,
-					    blk_t *num_blocks)
+					    blk64_t *num_blocks)
 {
-	blk_t	blk = scan->current_block;
+	blk64_t	blk = scan->current_block;
 	badblocks_list	bb = scan->fs->badblocks;
 
 	/*
@@ -329,7 +329,7 @@ static errcode_t check_for_inode_bad_blocks(ext2_inode_scan scan,
  */
 static errcode_t get_next_blocks(ext2_inode_scan scan)
 {
-	blk_t		num_blocks;
+	blk64_t		num_blocks;
 	errcode_t	retval;
 
 	/*
@@ -533,7 +533,9 @@ errcode_t ext2fs_read_inode_full(ext2_filsys fs, ext2_ino_t ino,
 	EXT2_CHECK_MAGIC(fs, EXT2_ET_MAGIC_EXT2FS_FILSYS);
 
 	/* Check to see if user has an override function */
-	if (fs->read_inode) {
+	if (fs->read_inode &&
+	    ((bufsize == sizeof(struct ext2_inode)) ||
+	     (EXT2_INODE_SIZE(fs->super) == sizeof(struct ext2_inode)))) {
 		retval = (fs->read_inode)(fs, ino, inode);
 		if (retval != EXT2_ET_CALLBACK_NOTHANDLED)
 			return retval;

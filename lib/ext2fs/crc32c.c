@@ -35,9 +35,9 @@
 #define __force
 #define min(x, y)		((x) > (y) ? (y) : (x))
 #define __ALIGN_KERNEL_MASK(x, mask)	(((x) + (mask)) & ~(mask))
-#define __ALIGN_KERNEL(x, a)	__ALIGN_KERNEL_MASK(x, (typeof(x))(a) - 1)
+#define __ALIGN_KERNEL(x, a)	__ALIGN_KERNEL_MASK(x, (__typeof__(x))(a) - 1)
 #define ALIGN(x, a)		__ALIGN_KERNEL((x), (a))
-#define PTR_ALIGN(p, a)		((typeof(p))ALIGN((unsigned long)(p), (a)))
+#define PTR_ALIGN(p, a)		((__typeof__(p))ALIGN((unsigned long)(p), (a)))
 #include "crc32c_defs.h"
 
 #include "ext2fs.h"
@@ -224,7 +224,7 @@ static uint32_t crc32c_le_body(uint32_t crc, uint8_t const *buf, size_t len)
 	crc = (__force uint32_t) __cpu_to_le32(crc);
 
 	p8 = buf;
-	p32 = (uint32_t *)PTR_ALIGN(p8, 8);
+	p32 = (const uint32_t *)PTR_ALIGN(p8, 8);
 	init_bytes = min((uintptr_t)p32 - (uintptr_t)p8, len);
 	words = (len - init_bytes) >> 3;
 	end_bytes = (len - init_bytes) & 7;
@@ -273,7 +273,7 @@ static uint32_t crc32c_le_body(uint32_t crc, uint8_t const *buf, size_t len)
 #endif
 	}
 
-	p8 = (uint8_t *)(++p32);
+	p8 = (const uint8_t *)(++p32);
 
 	for (i = 0; i < end_bytes; i++) {
 #ifndef WORDS_BIGENDIAN
@@ -304,7 +304,7 @@ static uint32_t crc32c_be_body(uint32_t crc, uint8_t const *buf, size_t len)
 	crc = (__force uint32_t) __cpu_to_be32(crc);
 
 	p8 = buf;
-	p32 = (uint32_t *)PTR_ALIGN(p8, 8);
+	p32 = (const uint32_t *)PTR_ALIGN(p8, 8);
 	init_bytes = min((uintptr_t)p32 - (uintptr_t)p8, len);
 	words = (len - init_bytes) >> 3;
 	end_bytes = (len - init_bytes) & 7;
@@ -353,7 +353,7 @@ static uint32_t crc32c_be_body(uint32_t crc, uint8_t const *buf, size_t len)
 #endif
 	}
 
-	p8 = (uint8_t *)(++p32);
+	p8 = (const uint8_t *)(++p32);
 
 	for (i = 0; i < end_bytes; i++) {
 #ifndef WORDS_BIGENDIAN
@@ -1117,12 +1117,12 @@ static int test_crc32c(void)
 		be = ext2fs_crc32c_be(t->crc, test_buf + t->start, t->length);
 		if (le != t->crc_le) {
 			printf("Test %d LE fails, %x != %x\n",
-			       (t - test), le, t->crc_le);
+			       (int) (t - test), le, t->crc_le);
 			failures++;
 		}
 		if (be != t->crc_be) {
 			printf("Test %d BE fails, %x != %x\n",
-			       (t - test), be, t->crc_be);
+			       (int) (t - test), be, t->crc_be);
 			failures++;
 		}
 		t++;

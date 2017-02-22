@@ -83,7 +83,7 @@ static unsigned long sf;
 static void usage(void)
 {
 	fprintf(stderr,
-		_("Usage: %s [-RVf] [-+=AacDdeijsSu] [-v version] files...\n"),
+		_("Usage: %s [-RVf] [-+=aAcCdDeijsStTu] [-v version] files...\n"),
 		program_name);
 	exit(1);
 }
@@ -107,6 +107,7 @@ static const struct flags_char flags_array[] = {
 	{ EXT2_UNRM_FL, 'u' },
 	{ EXT2_NOTAIL_FL, 't' },
 	{ EXT2_TOPDIR_FL, 'T' },
+	{ FS_NOCOW_FL, 'C' },
 	{ 0, 0 }
 };
 
@@ -193,7 +194,6 @@ static int change_attributes(const char * name)
 {
 	unsigned long flags;
 	STRUCT_STAT	st;
-	int extent_file = 0;
 
 	if (LSTAT (name, &st) == -1) {
 		if (!silent)
@@ -208,16 +208,7 @@ static int change_attributes(const char * name)
 					_("while reading flags on %s"), name);
 		return -1;
 	}
-	if (flags & EXT4_EXTENTS_FL)
-		extent_file = 1;
 	if (set) {
-		if (extent_file && !(sf & EXT4_EXTENTS_FL)) {
-			if (!silent)
-				com_err(program_name, 0,
-				_("Clearing extent flag not supported on %s"),
-					name);
-			return -1;
-		}
 		if (verbose) {
 			printf (_("Flags of %s set as "), name);
 			print_flags (stdout, sf, 0);
@@ -230,13 +221,6 @@ static int change_attributes(const char * name)
 			flags &= ~rf;
 		if (add)
 			flags |= af;
-		if (extent_file && !(flags & EXT4_EXTENTS_FL)) {
-			if (!silent)
-				com_err(program_name, 0,
-				_("Clearing extent flag not supported on %s"),
-					name);
-			return -1;
-		}
 		if (verbose) {
 			printf(_("Flags of %s set as "), name);
 			print_flags(stdout, flags, 0);
@@ -279,8 +263,9 @@ static int chattr_dir_proc (const char * dir_name, struct dirent * de,
 
 		path = malloc(strlen (dir_name) + 1 + strlen (de->d_name) + 1);
 		if (!path) {
-			fprintf(stderr, _("Couldn't allocate path variable "
-					  "in chattr_dir_proc"));
+			fprintf(stderr, "%s",
+				_("Couldn't allocate path variable "
+				  "in chattr_dir_proc"));
 			return -1;
 		}
 		sprintf(path, "%s/%s", dir_name, de->d_name);
