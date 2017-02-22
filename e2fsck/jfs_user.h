@@ -18,7 +18,7 @@ struct buffer_head {
 	e2fsck_t	b_ctx;
 	io_channel 	b_io;
 	int	 	b_size;
-	blk_t	 	b_blocknr;
+	unsigned long long b_blocknr;
 	int	 	b_dirty;
 	int	 	b_uptodate;
 	int	 	b_err;
@@ -75,20 +75,31 @@ typedef __u64 __be64;
  * We use the standard libext2fs portability tricks for inline
  * functions.
  */
+#ifdef NO_INLINE_FUNCS
 extern lkmem_cache_t * do_cache_create(int len);
 extern void do_cache_destroy(lkmem_cache_t *cache);
 extern size_t journal_tag_bytes(journal_t *journal);
+#endif
 
 #if (defined(E2FSCK_INCLUDE_INLINE_FUNCS) || !defined(NO_INLINE_FUNCS))
 #ifdef E2FSCK_INCLUDE_INLINE_FUNCS
-#define _INLINE_ extern
+#if (__STDC_VERSION__ >= 199901L)
+#define _INLINE_ extern inline
 #else
+#define _INLINE_ inline
+#endif
+#else /* !E2FSCK_INCLUDE_INLINE FUNCS */
+#if (__STDC_VERSION__ >= 199901L)
+#define _INLINE_ inline
+#else /* not C99 */
 #ifdef __GNUC__
 #define _INLINE_ extern __inline__
 #else				/* For Watcom C */
 #define _INLINE_ extern inline
-#endif
-#endif
+#endif /* __GNUC__ */
+#endif /* __STDC_VERSION__ >= 199901L */
+#endif /* E2FSCK_INCLUDE_INLINE_FUNCS */
+
 
 _INLINE_ lkmem_cache_t * do_cache_create(int len)
 {
@@ -121,7 +132,7 @@ _INLINE_ size_t journal_tag_bytes(journal_t *journal)
 /*
  * Kernel compatibility functions are defined in journal.c
  */
-int journal_bmap(journal_t *journal, blk64_t block, unsigned long *phys);
+int journal_bmap(journal_t *journal, blk64_t block, unsigned long long *phys);
 struct buffer_head *getblk(kdev_t ctx, blk64_t blocknr, int blocksize);
 void sync_blockdev(kdev_t kdev);
 void ll_rw_block(int rw, int dummy, struct buffer_head *bh[]);

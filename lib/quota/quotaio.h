@@ -1,6 +1,32 @@
 /** quotaio.h
  *
+ * Interface to the quota library.
+ *
+ * The quota library provides interface for creating and updating the quota
+ * files and the ext4 superblock fields. It supports the new VFS_V1 quota
+ * format. The quota library also provides support for keeping track of quotas
+ * in memory.
+ * The typical way to use the quota library is as follows:
+ * {
+ *	quota_ctx_t qctx;
+ *
+ *	quota_init_context(&qctx, fs, -1);
+ *	{
+ *		quota_compute_usage(qctx, -1);
+ *		AND/OR
+ *		quota_data_add/quota_data_sub/quota_data_inodes();
+ *	}
+ *	quota_write_inode(qctx, USRQUOTA);
+ *	quota_write_inode(qctx, GRPQUOTA);
+ *	quota_release_context(&qctx);
+ * }
+ *
+ * This initial version does not support reading the quota files. This support
+ * will be added in near future.
+ *
+ * Aditya Kali <adityakali@google.com>
  * Header of IO operations for quota utilities
+ *
  * Jan Kara <jack@suse.cz>
  */
 
@@ -11,14 +37,44 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+#include "ext2fs/ext2_fs.h"
 #include "ext2fs/ext2fs.h"
-#include "quota.h"
 #include "dqblk_v2.h"
+#include "../e2fsck/dict.h"
+
+typedef int64_t qsize_t;	/* Type in which we store size limitations */
+
+#define MAXQUOTAS 2
+#define USRQUOTA 0
+#define GRPQUOTA 1
+
+typedef struct quota_ctx *quota_ctx_t;
+
+struct quota_ctx {
+	ext2_filsys	fs;
+	dict_t		*quota_dict[MAXQUOTAS];
+	struct quota_handle *quota_file[MAXQUOTAS];
+};
 
 /*
- * Definitions for disk quotas imposed on the average user
- * (big brother finally hits Linux).
- *
+ * Definitions of magics and versions of current quota files
+ */
+#define INITQMAGICS {\
+	0xd9c01f11,	/* USRQUOTA */\
+	0xd9c01927	/* GRPQUOTA */\
+}
+
+/* Size of blocks in which are counted size limits in generic utility parts */
+#define QUOTABLOCK_BITS 10
+#define QUOTABLOCK_SIZE (1 << QUOTABLOCK_BITS)
+#define toqb(x) (((x) + QUOTABLOCK_SIZE - 1) >> QUOTABLOCK_BITS)
+
+/* Quota format type IDs */
+#define	QFMT_VFS_OLD 1
+#define	QFMT_VFS_V0 2
+#define	QFMT_VFS_V1 4
+
+/*
  * The following constants define the default amount of time given a user
  * before the soft limits are treated as hard limits (usually resulting
  * in an allocation failure). The timer is started when the user crosses
@@ -27,11 +83,7 @@
 #define MAX_IQ_TIME  604800	/* (7*24*60*60) 1 week */
 #define MAX_DQ_TIME  604800	/* (7*24*60*60) 1 week */
 
-#define IOFL_QUOTAON	0x01	/* Is quota enabled in kernel? */
-#define IOFL_INFODIRTY	0x02	/* Did info change? */
-#define IOFL_RO		0x04	/* Just RO access? */
-#define IOFL_NFS_MIXED_PATHS	0x08	/* Should we trim leading slashes
-					   from NFSv4 mountpoints? */
+#define IOFL_INFODIRTY	0x01	/* Did info change? */
 
 struct quotafile_ops;
 
@@ -54,6 +106,7 @@ struct quota_file {
 struct quota_handle {
 	int qh_type;		/* Type of quotafile */
 	int qh_fmt;		/* Quotafile format */
+	int qh_file_flags;
 	int qh_io_flags;	/* IO flags for file */
 	struct quota_file qh_qf;
 	unsigned int (*e2fs_read)(struct quota_file *qf, ext2_loff_t offset,
@@ -62,19 +115,6 @@ struct quota_handle {
 			  void *buf, unsigned int size);
 	struct quotafile_ops *qh_ops;	/* Operations on quotafile */
 	struct util_dqinfo qh_info;	/* Generic quotafile info */
-};
-
-/* Statistics gathered from kernel */
-struct util_dqstats {
-	u_int32_t lookups;
-	u_int32_t drops;
-	u_int32_t reads;
-	u_int32_t writes;
-	u_int32_t cache_hits;
-	u_int32_t allocated_dquots;
-	u_int32_t free_dquots;
-	u_int32_t syncs;
-	u_int32_t version;
 };
 
 /* Utility quota block */
@@ -100,6 +140,8 @@ struct dquot {
 	struct quota_handle *dq_h;	/* Handle of quotafile for this dquot */
 	struct util_dqblk dq_dqb;	/* Parsed data of dquot */
 };
+
+#define DQF_SEEN	0x0001
 
 /* Structure of quotafile operations */
 struct quotafile_ops {
@@ -129,17 +171,9 @@ struct quotafile_ops {
 /* This might go into a special header file but that sounds a bit silly... */
 extern struct quotafile_ops quotafile_ops_meta;
 
-static inline void mark_quotafile_info_dirty(struct quota_handle *h)
-{
-	h->qh_io_flags |= IOFL_INFODIRTY;
-}
-
-#define QIO_ENABLED(h)	((h)->qh_io_flags & IOFL_QUOTAON)
-#define QIO_RO(h)	((h)->qh_io_flags & IOFL_RO)
-
 /* Open existing quotafile of given type (and verify its format) on given
  * filesystem. */
-errcode_t quota_file_open(struct quota_handle *h, ext2_filsys fs,
+errcode_t quota_file_open(quota_ctx_t qctx, struct quota_handle *h,
 			  ext2_ino_t qf_ino, int type, int fmt, int flags);
 
 
@@ -148,7 +182,7 @@ errcode_t quota_file_create(struct quota_handle *h, ext2_filsys fs,
 			    int type, int fmt);
 
 /* Close quotafile */
-errcode_t quota_file_close(struct quota_handle *h);
+errcode_t quota_file_close(quota_ctx_t qctx, struct quota_handle *h);
 
 /* Get empty quota structure */
 struct dquot *get_empty_dquot(void);
@@ -166,5 +200,26 @@ void update_grace_times(struct dquot *q);
 const char *quota_get_qf_name(int type, int fmt, char *buf);
 const char *quota_get_qf_path(const char *mntpt, int qtype, int fmt,
 			      char *path_buf, size_t path_buf_size);
+
+/* In mkquota.c */
+errcode_t quota_init_context(quota_ctx_t *qctx, ext2_filsys fs, int qtype);
+void quota_data_inodes(quota_ctx_t qctx, struct ext2_inode *inode, ext2_ino_t ino,
+		int adjust);
+void quota_data_add(quota_ctx_t qctx, struct ext2_inode *inode, ext2_ino_t ino,
+		qsize_t space);
+void quota_data_sub(quota_ctx_t qctx, struct ext2_inode *inode, ext2_ino_t ino,
+		qsize_t space);
+errcode_t quota_write_inode(quota_ctx_t qctx, int qtype);
+errcode_t quota_update_limits(quota_ctx_t qctx, ext2_ino_t qf_ino, int type);
+errcode_t quota_compute_usage(quota_ctx_t qctx);
+void quota_release_context(quota_ctx_t *qctx);
+
+errcode_t quota_remove_inode(ext2_filsys fs, int qtype);
+int quota_file_exists(ext2_filsys fs, int qtype, int fmt);
+void quota_set_sb_inum(ext2_filsys fs, ext2_ino_t ino, int qtype);
+errcode_t quota_compare_and_update(quota_ctx_t qctx, int qtype,
+				   int *usage_inconsistent);
+
+
 
 #endif /* GUARD_QUOTAIO_H */

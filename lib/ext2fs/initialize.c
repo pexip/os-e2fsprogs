@@ -98,8 +98,10 @@ errcode_t ext2fs_initialize(const char *name, int flags,
 	int		csum_flag;
 	int		bigalloc_flag;
 	int		io_flags;
+	unsigned	reserved_inos;
 	char		*buf = 0;
 	char		c;
+	double		reserved_ratio;
 
 	if (!param || !ext2fs_blocks_count(param))
 		return EXT2_ET_INVALID_ARGUMENT;
@@ -112,12 +114,15 @@ errcode_t ext2fs_initialize(const char *name, int flags,
 	fs->magic = EXT2_ET_MAGIC_EXT2FS_FILSYS;
 	fs->flags = flags | EXT2_FLAG_RW;
 	fs->umask = 022;
+	fs->default_bitmap_type = EXT2FS_BMAP64_RBTREE;
 #ifdef WORDS_BIGENDIAN
 	fs->flags |= EXT2_FLAG_SWAP_BYTES;
 #endif
 	io_flags = IO_FLAG_RW;
 	if (flags & EXT2_FLAG_EXCLUSIVE)
 		io_flags |= IO_FLAG_EXCLUSIVE;
+	if (flags & EXT2_FLAG_DIRECT_IO)
+		io_flags |= IO_FLAG_DIRECT_IO;
 	retval = manager->open(name, io_flags, &fs->io);
 	if (retval)
 		goto cleanup;
@@ -168,6 +173,8 @@ errcode_t ext2fs_initialize(const char *name, int flags,
 	set_field(s_raid_stripe_width, 0);	/* default stripe width: 0 */
 	set_field(s_log_groups_per_flex, 0);
 	set_field(s_flags, 0);
+	assign_field(s_backup_bgs[0]);
+	assign_field(s_backup_bgs[1]);
 	if (super->s_feature_incompat & ~EXT2_LIB_FEATURE_INCOMPAT_SUPP) {
 		retval = EXT2_ET_UNSUPP_FEATURE;
 		goto cleanup;
@@ -202,6 +209,8 @@ errcode_t ext2fs_initialize(const char *name, int flags,
 		super->s_log_block_size;
 
 	if (bigalloc_flag) {
+		unsigned long long bpg;
+
 		if (param->s_blocks_per_group &&
 		    param->s_clusters_per_group &&
 		    ((param->s_clusters_per_group * EXT2FS_CLUSTER_RATIO(fs)) !=
@@ -215,12 +224,19 @@ errcode_t ext2fs_initialize(const char *name, int flags,
 			super->s_clusters_per_group = 
 				param->s_blocks_per_group /
 				EXT2FS_CLUSTER_RATIO(fs);
-		else
+		else if (super->s_log_cluster_size + 15 < 32)
 			super->s_clusters_per_group = fs->blocksize * 8;
+		else
+			super->s_clusters_per_group = (fs->blocksize - 1) * 8;
 		if (super->s_clusters_per_group > EXT2_MAX_CLUSTERS_PER_GROUP(super))
 			super->s_clusters_per_group = EXT2_MAX_CLUSTERS_PER_GROUP(super);
-		super->s_blocks_per_group = EXT2FS_C2B(fs,
-				       super->s_clusters_per_group);
+		bpg = EXT2FS_C2B(fs,
+			(unsigned long long) super->s_clusters_per_group);
+		if (bpg >= (((unsigned long long) 1) << 32)) {
+			retval = EXT2_ET_INVALID_ARGUMENT;
+			goto cleanup;
+		}
+		super->s_blocks_per_group = bpg;
 	} else {
 		set_field(s_blocks_per_group, fs->blocksize * 8);
 		if (super->s_blocks_per_group > EXT2_MAX_BLOCKS_PER_GROUP(super))
@@ -235,6 +251,8 @@ errcode_t ext2fs_initialize(const char *name, int flags,
 		retval = EXT2_ET_INVALID_ARGUMENT;
 		goto cleanup;
 	}
+
+	set_field(s_mmp_update_interval, 0);
 
 	/*
 	 * If we're creating an external journal device, we don't need
@@ -256,8 +274,9 @@ retry:
 		goto cleanup;
 	}
 
-	if (super->s_feature_incompat & EXT4_FEATURE_INCOMPAT_64BIT)
-		super->s_desc_size = EXT2_MIN_DESC_SIZE_64BIT;
+	set_field(s_desc_size,
+		  super->s_feature_incompat & EXT4_FEATURE_INCOMPAT_64BIT ?
+		  EXT2_MIN_DESC_SIZE_64BIT : 0);
 
 	fs->desc_blocks = ext2fs_div_ceil(fs->group_desc_count,
 					  EXT2_DESC_PER_BLOCK(super));
@@ -387,6 +406,14 @@ ipg_retry:
 	if (rem && (rem < overhead+50)) {
 		ext2fs_blocks_count_set(super, ext2fs_blocks_count(super) -
 					rem);
+		/*
+		 * If blocks count is changed, we need to recalculate
+		 * reserved blocks count not to exceed 50%.
+		 */
+		reserved_ratio = 100.0 * ext2fs_r_blocks_count(param) /
+			ext2fs_blocks_count(param);
+		ext2fs_r_blocks_count_set(super, reserved_ratio *
+			ext2fs_blocks_count(super) / 100.0);
 
 		goto retry;
 	}
@@ -396,6 +423,21 @@ ipg_retry:
 	 * we can do any and all allocations that depend on the block
 	 * count.
 	 */
+
+	/* Set up the locations of the backup superblocks */
+	if (super->s_feature_compat & EXT4_FEATURE_COMPAT_SPARSE_SUPER2) {
+		if (super->s_backup_bgs[0] >= fs->group_desc_count)
+			super->s_backup_bgs[0] = fs->group_desc_count - 1;
+		if (super->s_backup_bgs[1] >= fs->group_desc_count)
+			super->s_backup_bgs[1] = fs->group_desc_count - 1;
+		if (super->s_backup_bgs[0] == super->s_backup_bgs[1])
+			super->s_backup_bgs[1] = 0;
+		if (super->s_backup_bgs[0] > super->s_backup_bgs[1]) {
+			__u32 t = super->s_backup_bgs[0];
+			super->s_backup_bgs[0] = super->s_backup_bgs[1];
+			super->s_backup_bgs[1] = t;
+		}
+	}
 
 	retval = ext2fs_get_mem(strlen(fs->device_name) + 80, &buf);
 	if (retval)
@@ -436,6 +478,7 @@ ipg_retry:
 	free_blocks = 0;
 	csum_flag = EXT2_HAS_RO_COMPAT_FEATURE(fs->super,
 					       EXT4_FEATURE_RO_COMPAT_GDT_CSUM);
+	reserved_inos = super->s_first_ino;
 	for (i = 0; i < fs->group_desc_count; i++) {
 		/*
 		 * Don't set the BLOCK_UNINIT group for the last group
@@ -447,8 +490,15 @@ ipg_retry:
 						    EXT2_BG_BLOCK_UNINIT);
 			ext2fs_bg_flags_set(fs, i, EXT2_BG_INODE_UNINIT);
 			numblocks = super->s_inodes_per_group;
-			if (i == 0)
-				numblocks -= super->s_first_ino;
+			if (reserved_inos) {
+				if (numblocks > reserved_inos) {
+					numblocks -= reserved_inos;
+					reserved_inos = 0;
+				} else {
+					reserved_inos -= numblocks;
+					numblocks = 0;
+				}
+			}
 			ext2fs_bg_itable_unused_set(fs, i, numblocks);
 		}
 		numblocks = ext2fs_reserve_super_and_bgd(fs, i, fs->block_map);

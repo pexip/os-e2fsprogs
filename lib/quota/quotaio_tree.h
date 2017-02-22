@@ -6,7 +6,8 @@
 #define _LINUX_QUOTA_TREE_H
 
 #include <sys/types.h>
-#include "quota.h"
+
+typedef __u32 qid_t;        /* Type in which we store ids in memory */
 
 #define QT_TREEOFF	1	/* Offset of tree in file in blocks */
 #define QT_TREEDEPTH	4	/* Depth of quota tree */
@@ -19,13 +20,13 @@
  *  so there will be space for exactly 21 quota-entries in a block
  */
 struct qt_disk_dqdbheader {
-	u_int32_t dqdh_next_free;	/* Number of next block with free
+	__u32 dqdh_next_free;	/* Number of next block with free
 					 * entry */
-	u_int32_t dqdh_prev_free; /* Number of previous block with free
+	__u32 dqdh_prev_free; /* Number of previous block with free
 				   * entry */
-	u_int16_t dqdh_entries; /* Number of valid entries in block */
-	u_int16_t dqdh_pad1;
-	u_int32_t dqdh_pad2;
+	__u16 dqdh_entries; /* Number of valid entries in block */
+	__u16 dqdh_pad1;
+	__u32 dqdh_pad2;
 } __attribute__ ((packed));
 
 struct dquot;
