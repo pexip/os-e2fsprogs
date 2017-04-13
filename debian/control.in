@@ -8,10 +8,12 @@ ifdef(`DIETLIBC', ``dietlibc-dev (>> 0.30) [alpha amd64 arm hppa i386 ia64 power
 Source: e2fsprogs
 Section: admin
 Priority: required
-Maintainer: Theodore Y. Ts'o <tytso@mit.edu>
+Maintainer: Pexip AS <packaging@pexip.com>
+XSBC-Pexip-Original-Maintainer: Theodore Y. Ts'o <tytso@mit.edu>
 Build-Depends: gettext, texinfo, pkg-config, DIETLIBC_DEFINES gcc-multilib [mips mipsel], debhelper (>= 7.0), UTIL_LINUX_NG_DEFINES m4
 Standards-Version: 3.9.5
 Homepage: http://e2fsprogs.sourceforge.net
+XS-Pexip-Upstream: http://ftp.debian.org/debian/ jessie
 
 ifdef(`E2FSCK_STATIC',``
 Package: e2fsck-static
