@@ -7,6 +7,8 @@
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
+#else
+#define HAVE_SYS_TIME_H
 #endif
 #include <stdio.h>
 #include <errno.h>
@@ -17,11 +19,18 @@
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
+#ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
+#endif
+#ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
+#endif
 #include <fcntl.h>
 #include <time.h>
 #include <utime.h>
+#ifdef HAVE_SYS_TIME_H
+#include <sys/time.h>
+#endif
 
 #ifdef HAVE_GETOPT_H
 #include <getopt.h>
@@ -291,13 +300,30 @@ static int compare_file(FILE *old_f, FILE *new_f)
 	return retval;
 }
 
+void set_utimes(const char *filename, int fd, const struct timeval times[2])
+{
+#ifdef HAVE_FUTIMES
+	if (futimes(fd, times) < 0)
+		perror("futimes");
+#elif HAVE_UTIMES
+	if (utimes(filename, times) < 0)
+		perror("utimes");
+#else
+	struct utimbuf ut;
+
+	ut.actime = times[0].tv_sec;
+	ut.modtime = times[1].tv_sec;
+	if (utime(filename, &ut) < 0)
+		perror("utime");
+#endif
+}
 
 
 int main(int argc, char **argv)
 {
 	char	line[2048];
 	int	c;
-	int	fd;
+	int	fd, ofd = -1;
 	FILE	*in, *out, *old = NULL;
 	char	*outfn = NULL, *newfn = NULL;
 	int	verbose = 0;
@@ -348,12 +374,12 @@ int main(int argc, char **argv)
 		}
 		strcpy(newfn, outfn);
 		strcat(newfn, ".new");
-		fd = open(newfn, O_CREAT|O_TRUNC|O_RDWR, 0444);
-		if (fd < 0) {
+		ofd = open(newfn, O_CREAT|O_TRUNC|O_RDWR, 0644);
+		if (ofd < 0) {
 			perror(newfn);
 			exit(1);
 		}
-		out = fdopen(fd, "w+");
+		out = fdopen(ofd, "w+");
 		if (!out) {
 			perror("fdopen");
 			exit(1);
@@ -405,20 +431,18 @@ int main(int argc, char **argv)
 					tv[0] = tv[1];
 				else if (verbose)
 					printf("Using original atime\n");
-#ifdef HAVE_FUTIMES
-				if (futimes(fileno(old), tv) < 0)
-					perror("futimes");
-#else
-				if (utimes(outfn, tv) < 0)
-					perror("utimes");
-#endif
+				set_utimes(outfn, fileno(old), tv);
 			}
+			if (ofd >= 0)
+				(void) fchmod(ofd, 0444);
 			fclose(out);
 			if (unlink(newfn) < 0)
 				perror("unlink");
 		} else {
 			if (verbose)
 				printf("Creating or replacing %s.\n", outfn);
+			if (ofd >= 0)
+				(void) fchmod(ofd, 0444);
 			fclose(out);
 			if (old)
 				fclose(old);
@@ -431,6 +455,8 @@ int main(int argc, char **argv)
 	}
 	if (old)
 		fclose(old);
+	if (newfn)
+		free(newfn);
 	return (0);
 }
 
