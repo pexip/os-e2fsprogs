@@ -1,3 +1,9 @@
+e2fsprogs (1.43.4-2+deb9u1) stretch-security; urgency=high
+
+  * Fix CVE-2019-5094: potential buffer overrun in e2fsck (Closes: #941139)
+
+ -- Theodore Y. Ts'o <tytso@mit.edu>  Wed, 25 Sep 2019 19:17:45 -0400
+
 e2fsprogs (1.43.4-2) unstable; urgency=medium
 
   * Re-enable metadata_csum for Debian (which was accidentally disabled
