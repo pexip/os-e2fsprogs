@@ -4,6 +4,8 @@ all::
 
 check::
 
+fullcheck::
+
 SHELL = /bin/sh
 
 COMPRESS_EXT = gz bz2 bz Z
@@ -108,7 +110,7 @@ LDCONFIG = @LDCONFIG@
 INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_DATA = @INSTALL_DATA@
 INSTALL_SCRIPT = @INSTALL_SCRIPT@
-MKINSTALLDIRS = @MKINSTALLDIRS@
+MKDIR_P = @MKDIR_P@
 
 #
 # Library definitions

@@ -1,5 +1,6 @@
 From: Theodore Ts'o <tytso@mit.edu>
 Date: Sun, 1 Sep 2019 00:59:16 -0400
+X-Dgit-Generated: 1.44.5-1+deb10u1 09fe1fd2a1f9efc3091b4fc61f1876d0785956a8
 Subject: libsupport: add checks to prevent buffer overrun bugs in quota code
 
 A maliciously corrupted file systems can trigger buffer overruns in
@@ -13,16 +14,10 @@ Signed-off-by: Theodore Ts'o <tytso@mit.edu>
 (cherry picked from commit 8dbe7b475ec5e91ed767239f0e85880f416fc384)
 
 ---
- lib/support/mkquota.c      |  1 +
- lib/support/quotaio_tree.c | 71 +++++++++++++++++++++++++-------------
- lib/support/quotaio_v2.c   | 28 +++++++++++++++
- 3 files changed, 76 insertions(+), 24 deletions(-)
 
-diff --git a/lib/support/mkquota.c b/lib/support/mkquota.c
-index 86292667..32fa9e48 100644
---- a/lib/support/mkquota.c
-+++ b/lib/support/mkquota.c
-@@ -649,6 +649,7 @@ errcode_t quota_compare_and_update(quota_ctx_t qctx, enum quota_type qtype,
+--- e2fsprogs-1.44.5.orig/lib/support/mkquota.c
++++ e2fsprogs-1.44.5/lib/support/mkquota.c
+@@ -671,6 +671,7 @@ errcode_t quota_compare_and_update(quota
  	err = qh.qh_ops->scan_dquots(&qh, scan_dquots_callback, &scan_data);
  	if (err) {
  		log_debug("Error scanning dquots");
@@ -30,11 +25,9 @@ index 86292667..32fa9e48 100644
  		goto out_close_qh;
  	}
  
-diff --git a/lib/support/quotaio_tree.c b/lib/support/quotaio_tree.c
-index a7c2028c..6cc4fb5b 100644
---- a/lib/support/quotaio_tree.c
-+++ b/lib/support/quotaio_tree.c
-@@ -540,6 +540,17 @@ struct dquot *qtree_read_dquot(struct quota_handle *h, qid_t id)
+--- e2fsprogs-1.44.5.orig/lib/support/quotaio_tree.c
++++ e2fsprogs-1.44.5/lib/support/quotaio_tree.c
+@@ -540,6 +540,17 @@ struct dquot *qtree_read_dquot(struct qu
  	return dquot;
  }
  
@@ -52,7 +45,7 @@ index a7c2028c..6cc4fb5b 100644
  /*
   * Scan all dquots in file and call callback on each
   */
-@@ -558,7 +569,7 @@ static int report_block(struct dquot *dquot, unsigned int blk, char *bitmap,
+@@ -558,7 +569,7 @@ static int report_block(struct dquot *dq
  	int entries, i;
  
  	if (!buf)
@@ -61,7 +54,7 @@ index a7c2028c..6cc4fb5b 100644
  
  	set_bit(bitmap, blk);
  	read_blk(dquot->dq_h, blk, buf);
-@@ -580,23 +591,12 @@ static int report_block(struct dquot *dquot, unsigned int blk, char *bitmap,
+@@ -580,23 +591,12 @@ static int report_block(struct dquot *dq
  	return entries;
  }
  
@@ -86,7 +79,7 @@ index a7c2028c..6cc4fb5b 100644
  	dqbuf_t buf = getdqbuf();
  	__le32 *ref = (__le32 *) buf;
  
-@@ -607,22 +607,40 @@ static int report_tree(struct dquot *dquot, unsigned int blk, int depth,
+@@ -607,22 +607,40 @@ static int report_tree(struct dquot *dqu
  	if (depth == QT_TREEDEPTH - 1) {
  		for (i = 0; i < QT_BLKSIZE >> 2; i++) {
  			blk = ext2fs_le32_to_cpu(ref[i]);
@@ -135,7 +128,7 @@ index a7c2028c..6cc4fb5b 100644
  	freedqbuf(buf);
  	return entries;
  }
-@@ -642,6 +660,7 @@ int qtree_scan_dquots(struct quota_handle *h,
+@@ -642,6 +660,7 @@ int qtree_scan_dquots(struct quota_handl
  		      int (*process_dquot) (struct dquot *, void *),
  		      void *data)
  {
@@ -143,7 +136,7 @@ index a7c2028c..6cc4fb5b 100644
  	char *bitmap;
  	struct v2_mem_dqinfo *v2info = &h->qh_info.u.v2_mdqi;
  	struct qtree_mem_dqinfo *info = &v2info->dqi_qtree;
-@@ -655,10 +674,14 @@ int qtree_scan_dquots(struct quota_handle *h,
+@@ -655,10 +674,14 @@ int qtree_scan_dquots(struct quota_handl
  		ext2fs_free_mem(&dquot);
  		return -1;
  	}
@@ -161,11 +154,9 @@ index a7c2028c..6cc4fb5b 100644
 -	return 0;
 +	return ret;
  }
-diff --git a/lib/support/quotaio_v2.c b/lib/support/quotaio_v2.c
-index 38be2a34..73906676 100644
---- a/lib/support/quotaio_v2.c
-+++ b/lib/support/quotaio_v2.c
-@@ -175,6 +175,8 @@ static int v2_check_file(struct quota_handle *h, int type, int fmt)
+--- e2fsprogs-1.44.5.orig/lib/support/quotaio_v2.c
++++ e2fsprogs-1.44.5/lib/support/quotaio_v2.c
+@@ -175,6 +175,8 @@ static int v2_check_file(struct quota_ha
  static int v2_init_io(struct quota_handle *h)
  {
  	struct v2_disk_dqinfo ddqinfo;
@@ -174,7 +165,7 @@ index 38be2a34..73906676 100644
  
  	h->qh_info.u.v2_mdqi.dqi_qtree.dqi_entry_size =
  		sizeof(struct v2r1_disk_dqblk);
-@@ -185,6 +187,32 @@ static int v2_init_io(struct quota_handle *h)
+@@ -185,6 +187,32 @@ static int v2_init_io(struct quota_handl
  			 sizeof(ddqinfo)) != sizeof(ddqinfo))
  		return -1;
  	v2_disk2memdqinfo(&h->qh_info, &ddqinfo);
@@ -207,6 +198,3 @@ index 38be2a34..73906676 100644
  	return 0;
  }
  
--- 
-2.23.0
-

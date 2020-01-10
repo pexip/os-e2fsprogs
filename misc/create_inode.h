@@ -24,11 +24,27 @@ struct hdlinks_s
 
 #define HDLINK_CNT	(4)
 
+struct fs_ops_callbacks {
+	errcode_t (* create_new_inode)(ext2_filsys fs, const char *target_path,
+		const char *name, ext2_ino_t parent_ino, ext2_ino_t root,
+		mode_t mode);
+	errcode_t (* end_create_new_inode)(ext2_filsys fs,
+		const char *target_path, const char *name,
+		ext2_ino_t parent_ino, ext2_ino_t root, mode_t mode);
+};
+
+extern int no_copy_xattrs; 	/* this should eventually be a flag
+				   passed to populate_fs3() */
+
 /* For populating the filesystem */
 extern errcode_t populate_fs(ext2_filsys fs, ext2_ino_t parent_ino,
 			     const char *source_dir, ext2_ino_t root);
+extern errcode_t populate_fs2(ext2_filsys fs, ext2_ino_t parent_ino,
+			      const char *source_dir, ext2_ino_t root,
+			      struct fs_ops_callbacks *fs_callbacks);
 extern errcode_t do_mknod_internal(ext2_filsys fs, ext2_ino_t cwd,
-				   const char *name, struct stat *st);
+				   const char *name, unsigned int st_mode,
+				   unsigned int st_rdev);
 extern errcode_t do_symlink_internal(ext2_filsys fs, ext2_ino_t cwd,
 				     const char *name, char *target,
 				     ext2_ino_t root);

@@ -76,6 +76,7 @@
 
 #include "ext2_fs.h"
 #include "ext2fs.h"
+#include "ext2fsP.h"
 
 /*
  * For checking structure magic numbers...
@@ -185,6 +186,7 @@ static errcode_t raw_read_blk(io_channel channel,
 		actual = pread64(data->dev, buf, size, location);
 		if (actual == size)
 			return 0;
+		actual = 0;
 	}
 #elif HAVE_PREAD
 	/* Try an aligned pread */
@@ -195,6 +197,7 @@ static errcode_t raw_read_blk(io_channel channel,
 		actual = pread(data->dev, buf, size, location);
 		if (actual == size)
 			return 0;
+		actual = 0;
 	}
 #endif /* HAVE_PREAD */
 
@@ -247,7 +250,8 @@ bounce_read:
 	return 0;
 
 error_out:
-	memset((char *) buf+actual, 0, size-actual);
+	if (actual >= 0 && actual < size)
+		memset((char *) buf+actual, 0, size-actual);
 	if (channel->read_error)
 		retval = (channel->read_error)(channel, block, count, buf,
 					       size, actual, retval);
@@ -345,7 +349,7 @@ bounce_write:
 					retval = errno;
 					goto error_out;
 				}
-				memset(data->bounce + actual, 0,
+				memset((char *) data->bounce + actual, 0,
 				       channel->block_size - actual);
 			}
 		}
@@ -565,6 +569,14 @@ static errcode_t unix_open_channel(const char *name, int fd,
 	if (safe_getenv("UNIX_IO_FORCE_BOUNCE"))
 		flags |= IO_FLAG_FORCE_BOUNCE;
 
+#ifdef __linux__
+	/*
+	 * We need to make sure any previous errors in the block
+	 * device are thrown away, sigh.
+	 */
+	(void) fsync(fd);
+#endif
+
 	retval = ext2fs_get_mem(sizeof(struct struct_io_channel), &io);
 	if (retval)
 		goto cleanup;
@@ -608,7 +620,7 @@ static errcode_t unix_open_channel(const char *name, int fd,
 	 * zero.
 	 */
 	if (ext2fs_fstat(data->dev, &st) == 0) {
-		if (S_ISBLK(st.st_mode))
+		if (ext2fsP_is_disk_device(st.st_mode))
 			io->flags |= CHANNEL_FLAGS_BLOCK_DEVICE;
 		else
 			io->flags |= CHANNEL_FLAGS_DISCARD_ZEROES;
@@ -679,7 +691,7 @@ static errcode_t unix_open_channel(const char *name, int fd,
 	     (ut.release[4] == '1') && (ut.release[5] >= '0') &&
 	     (ut.release[5] < '8')) &&
 	    (ext2fs_fstat(data->dev, &st) == 0) &&
-	    (S_ISBLK(st.st_mode))) {
+	    (ext2fsP_is_disk_device(st.st_mode))) {
 		struct rlimit	rlim;
 
 		rlim.rlim_cur = rlim.rlim_max = (unsigned long) RLIM_INFINITY;
@@ -718,6 +730,7 @@ static errcode_t unixfd_open(const char *str_fd, int flags,
 	int fd_flags;
 
 	fd = atoi(str_fd);
+#if defined(HAVE_FCNTL)
 	fd_flags = fcntl(fd, F_GETFD);
 	if (fd_flags == -1)
 		return -EBADF;
@@ -731,6 +744,7 @@ static errcode_t unixfd_open(const char *str_fd, int flags,
 	if (fd_flags & O_DIRECT)
 		flags |= IO_FLAG_DIRECT_IO;
 #endif
+#endif  /* HAVE_FCNTL */
 
 	return unix_open_channel(str_fd, fd, flags, channel, unixfd_io_manager);
 }
@@ -1030,8 +1044,10 @@ static errcode_t unix_flush(io_channel channel)
 #ifndef NO_IO_CACHE
 	retval = flush_cached_blocks(channel, data, 0);
 #endif
+#ifdef HAVE_FSYNC
 	if (!retval && fsync(data->dev) != 0)
 		return errno;
+#endif
 	return retval;
 }
 
@@ -1111,8 +1127,10 @@ unimplemented:
 }
 
 /* parameters might not be used if OS doesn't support zeroout */
+#if __GNUC_PREREQ (4, 6)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"
+#endif
 static errcode_t unix_zeroout(io_channel channel, unsigned long long block,
 			      unsigned long long count)
 {
@@ -1179,7 +1197,9 @@ err:
 unimplemented:
 	return EXT2_ET_UNIMPLEMENTED;
 }
+#if __GNUC_PREREQ (4, 6)
 #pragma GCC diagnostic pop
+#endif
 
 static struct struct_io_manager struct_unix_manager = {
 	.magic		= EXT2_ET_MAGIC_IO_MANAGER,

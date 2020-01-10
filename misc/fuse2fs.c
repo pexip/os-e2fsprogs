@@ -118,7 +118,14 @@ typedef struct {
 
 typedef struct {
 	u_int32_t	a_version;
+#if __GNUC_PREREQ (4, 8)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+#endif
 	acl_ea_entry	a_entries[0];
+#if __GNUC_PREREQ (4, 8)
+#pragma GCC diagnostic pop
+#endif
 } acl_ea_header;
 
 static inline size_t acl_ea_size(int count)
@@ -863,8 +870,9 @@ static int op_readlink(const char *path, char *buf, size_t len)
 	len--;
 	if (inode.i_size < len)
 		len = inode.i_size;
-	if (ext2fs_inode_data_blocks2(fs, &inode) ||
-	    (inode.i_flags & EXT4_INLINE_DATA_FL)) {
+	if (ext2fs_is_fast_symlink(&inode))
+		memcpy(buf, (char *)inode.i_block, len);
+	else {
 		/* big/inline symlink */
 
 		err = ext2fs_file_open(fs, ino, 0, &file);
@@ -888,9 +896,7 @@ out2:
 			ret = translate_error(fs, ino, err);
 			goto out;
 		}
-	} else
-		/* inline symlink */
-		memcpy(buf, (char *)inode.i_block, len);
+	}
 	buf[len] = 0;
 
 	if (fs_writeable(fs)) {
@@ -2654,12 +2660,6 @@ static int op_setxattr(const char *path EXT2FS_ATTR((unused)),
 		goto out3;
 	}
 
-	err = ext2fs_xattrs_write(h);
-	if (err) {
-		ret = translate_error(fs, ino, err);
-		goto out3;
-	}
-
 	ret = update_ctime(fs, ino, NULL);
 out3:
 	if (cvalue != value)
@@ -2721,12 +2721,6 @@ static int op_removexattr(const char *path, const char *key)
 	}
 
 	err = ext2fs_xattr_remove(h, key);
-	if (err) {
-		ret = translate_error(fs, ino, err);
-		goto out2;
-	}
-
-	err = ext2fs_xattrs_write(h);
 	if (err) {
 		ret = translate_error(fs, ino, err);
 		goto out2;
@@ -3759,7 +3753,7 @@ int main(int argc, char *argv[])
 		fctx.err_fp = fopen(logfile, "a");
 		if (!fctx.err_fp) {
 			perror(logfile);
-			goto out_nofs;
+			goto out;
 		}
 	} else
 		fctx.err_fp = stderr;
@@ -3780,12 +3774,13 @@ int main(int argc, char *argv[])
 	if (err) {
 		printf(_("%s: %s.\n"), fctx.device, error_message(err));
 		printf(_("Please run e2fsck -fy %s.\n"), fctx.device);
-		goto out_nofs;
+		goto out;
 	}
 	fctx.fs = global_fs;
 	global_fs->priv_data = &fctx;
 
 	ret = 3;
+
 	if (ext2fs_has_feature_journal_needs_recovery(global_fs->super)) {
 		if (!fctx.ro) {
 			printf(_("%s: recovering journal\n"), fctx.device);
@@ -3850,7 +3845,7 @@ int main(int argc, char *argv[])
 	/* Set up default fuse parameters */
 	snprintf(extra_args, BUFSIZ, "-okernel_cache,subtype=ext4,use_ino,"
 		 "fsname=%s,attr_timeout=0" FUSE_PLATFORM_OPTS,
-		 argv[1]);
+		 fctx.device);
 	if (fctx.no_default_opts == 0)
 		fuse_opt_add_arg(&args, extra_args);
 
@@ -3869,12 +3864,12 @@ int main(int argc, char *argv[])
 
 	ret = 0;
 out:
-	err = ext2fs_close(global_fs);
-	if (err)
-		com_err(argv[0], err, "while closing fs");
-	global_fs = NULL;
-out_nofs:
-
+	if (global_fs) {
+		err = ext2fs_close(global_fs);
+		if (err)
+			com_err(argv[0], err, "while closing fs");
+		global_fs = NULL;
+	}
 	return ret;
 }
 
