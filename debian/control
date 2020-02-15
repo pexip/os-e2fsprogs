@@ -6,7 +6,7 @@ XSBC-Pexip-Original-Maintainer: Theodore Y. Ts'o <tytso@mit.edu>
 Build-Depends: gettext, texinfo, pkg-config, gcc-multilib [mips mipsel], libfuse-dev [linux-any kfreebsd-any], libattr1-dev, debhelper (>= 9.0), libblkid-dev (>= 2.16), uuid-dev (>= 2.16), m4
 Standards-Version: 3.9.8
 Homepage: http://e2fsprogs.sourceforge.net
-XS-Pexip-Upstream: http://ftp.debian.org/debian/ stretch
+XS-Pexip-Upstream: http://ftp.debian.org/debian/ buster
 
 
 Package: fuse2fs
