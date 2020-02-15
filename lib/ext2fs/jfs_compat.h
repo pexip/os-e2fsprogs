@@ -7,7 +7,11 @@
 #ifdef HAVE_NETINET_IN_H
 #include <netinet/in.h>
 #endif
+#ifdef HAVE_WINSOCK_H
+#include <winsock.h>
+#else
 #include <arpa/inet.h>
+#endif
 
 #define printk printf
 #define KERN_ERR ""
@@ -82,14 +86,6 @@ struct journal_s
 	tid_t			j_failed_commit;
 	__u32			j_csum_seed;
 };
-
-#define J_ASSERT(assert)						\
-	do { if (!(assert)) {						\
-		printf ("Assertion failure in %s() at %s line %d: "	\
-			"\"%s\"\n",					\
-			__FUNCTION__, __FILE__, __LINE__, # assert);	\
-		fatal_error(e2fsck_global_ctx, 0);			\
-	} } while (0)
 
 #define is_journal_abort(x) 0
 

@@ -41,7 +41,7 @@ static int figure_label_len(const unsigned char *label, int len)
 {
 	const unsigned char *end = label + len - 1;
 
-	while ((*end == ' ' || *end == 0) && end >= label)
+	while (end >= label && (*end == ' ' || *end == 0))
 		--end;
 	if (end >= label)
 		return end - label + 1;
@@ -106,7 +106,6 @@ static int check_mdraid(int fd, unsigned char *ret_uuid)
 	if (blkid_llseek(fd, offset, 0) < 0 ||
 	    read(fd, buf, 4096) != 4096)
 		return -BLKID_ERR_IO;
-
 	/* Check for magic number */
 	if (memcmp("\251+N\374", buf, 4) && memcmp("\374N+\251", buf, 4))
 		return -BLKID_ERR_PARAM;
@@ -330,7 +329,7 @@ static int probe_ext4dev(struct blkid_probe *probe,
 	    EXT3_FEATURE_INCOMPAT_JOURNAL_DEV)
 		return -BLKID_ERR_PARAM;
 
-	/* 
+	/*
 	 * If the filesystem does not have a journal and ext2 and ext4
 	 * is not present, then force this to be detected as an
 	 * ext4dev filesystem.
@@ -374,7 +373,7 @@ static int probe_ext4(struct blkid_probe *probe, struct blkid_magic *id,
 	    EXT3_FEATURE_INCOMPAT_JOURNAL_DEV)
 		return -BLKID_ERR_PARAM;
 
-	/* 
+	/*
 	 * If the filesystem does not have a journal and ext2 is not
 	 * present, then force this to be detected as an ext2
 	 * filesystem.
@@ -452,7 +451,7 @@ static int probe_ext2(struct blkid_probe *probe, struct blkid_magic *id,
 	     EXT2_FEATURE_INCOMPAT_UNSUPPORTED))
 		return -BLKID_ERR_PARAM;
 
-	/* 
+	/*
 	 * If ext2 is not present, but ext4 or ext4dev are, then
 	 * disclaim we are ext2
 	 */
@@ -1161,6 +1160,37 @@ static void unicode_16be_to_utf8(unsigned char *str, int out_len,
 	str[j] = '\0';
 }
 
+static void unicode_16le_to_utf8(unsigned char *str, int out_len,
+				 const unsigned char *buf, int in_len)
+{
+	int i, j;
+	unsigned int c;
+
+	for (i = j = 0; i + 2 <= in_len; i += 2) {
+		c = (buf[i+1] << 8) | buf[i];
+		if (c == 0) {
+			str[j] = '\0';
+			break;
+		} else if (c < 0x80) {
+			if (j+1 >= out_len)
+				break;
+			str[j++] = (unsigned char) c;
+		} else if (c < 0x800) {
+			if (j+2 >= out_len)
+				break;
+			str[j++] = (unsigned char) (0xc0 | (c >> 6));
+			str[j++] = (unsigned char) (0x80 | (c & 0x3f));
+		} else {
+			if (j+3 >= out_len)
+				break;
+			str[j++] = (unsigned char) (0xe0 | (c >> 12));
+			str[j++] = (unsigned char) (0x80 | ((c >> 6) & 0x3f));
+			str[j++] = (unsigned char) (0x80 | (c & 0x3f));
+		}
+	}
+	str[j] = '\0';
+}
+
 static int probe_hfs(struct blkid_probe *probe __BLKID_ATTR((unused)),
 			 struct blkid_magic *id __BLKID_ATTR((unused)),
 			 unsigned char *buf)
@@ -1184,6 +1214,8 @@ static int probe_hfs(struct blkid_probe *probe __BLKID_ATTR((unused)),
 	return 0;
 }
 
+
+#define HFSPLUS_SECTOR_SIZE        512
 
 static int probe_hfsplus(struct blkid_probe *probe,
 			 struct blkid_magic *id,
@@ -1248,6 +1280,9 @@ static int probe_hfsplus(struct blkid_probe *probe,
 	}
 
 	blocksize = blkid_be32(hfsplus->blocksize);
+	if (blocksize < HFSPLUS_SECTOR_SIZE)
+		return 1;
+
 	memcpy(extents, hfsplus->cat_file.extents, sizeof(extents));
 	cat_block = blkid_be32(extents[0].start_block);
 
@@ -1403,6 +1438,102 @@ static int probe_f2fs(struct blkid_probe *probe,
     return 0;
 }
 
+static uint64_t exfat_block_to_offset(const struct exfat_super_block *sb,
+                                      uint64_t block)
+{
+    return block << sb->block_bits;
+}
+
+static uint64_t exfat_cluster_to_block(const struct exfat_super_block *sb,
+                                       uint32_t cluster)
+{
+    return sb->cluster_block_start +
+            ((uint64_t)(cluster - EXFAT_FIRST_DATA_CLUSTER) << sb->bpc_bits);
+}
+
+static uint64_t exfat_cluster_to_offset(const struct exfat_super_block *sb,
+                                        uint32_t cluster)
+{
+    return exfat_block_to_offset(sb, exfat_cluster_to_block(sb, cluster));
+}
+
+static uint32_t exfat_next_cluster(struct blkid_probe *probe,
+                                   const struct exfat_super_block *sb,
+                                   uint32_t cluster)
+{
+    uint32_t *next;
+    uint64_t offset;
+
+    offset = exfat_block_to_offset(sb, sb->fat_block_start)
+            + (uint64_t) cluster * sizeof (cluster);
+    next = (uint32_t *)get_buffer(probe, offset, sizeof (uint32_t));
+
+    return next ? *next : 0;
+}
+
+static struct exfat_entry_label *find_exfat_entry_label(
+    struct blkid_probe *probe, const struct exfat_super_block *sb)
+{
+    uint32_t cluster = sb->rootdir_cluster;
+    uint64_t offset = exfat_cluster_to_offset(sb, cluster);
+    uint8_t *entry;
+    const size_t max_iter = 10000;
+    size_t i = 0;
+
+    for (; i < max_iter; ++i) {
+        entry = (uint8_t *)get_buffer(probe, offset, EXFAT_ENTRY_SIZE);
+        if (!entry)
+            return NULL;
+        if (entry[0] == EXFAT_ENTRY_EOD)
+            return NULL;
+        if (entry[0] == EXFAT_ENTRY_LABEL)
+            return (struct exfat_entry_label*) entry;
+
+        offset += EXFAT_ENTRY_SIZE;
+        if (offset % CLUSTER_SIZE(sb) == 0) {
+            cluster = exfat_next_cluster(probe, sb, cluster);
+            if (cluster < EXFAT_FIRST_DATA_CLUSTER)
+                return NULL;
+            if (cluster > EXFAT_LAST_DATA_CLUSTER)
+                return NULL;
+            offset = exfat_cluster_to_offset(sb, cluster);
+        }
+    }
+
+    return NULL;
+}
+
+static int probe_exfat(struct blkid_probe *probe, struct blkid_magic *id,
+                       unsigned char *buf)
+{
+    struct exfat_super_block *sb;
+    struct exfat_entry_label *label;
+    uuid_t uuid;
+
+    sb = (struct exfat_super_block *)buf;
+    if (!sb || !CLUSTER_SIZE(sb)) {
+        DBG(DEBUG_PROBE, printf("bad exfat superblock.\n"));
+        return errno ? - errno : 1;
+    }
+
+    label = find_exfat_entry_label(probe, sb);
+    if (label) {
+        char utf8_label[128];
+        unicode_16le_to_utf8(utf8_label, sizeof(utf8_label), label->name, label->length * 2);
+        blkid_set_tag(probe->dev, "LABEL", utf8_label, 0);
+    } else {
+        blkid_set_tag(probe->dev, "LABEL", "disk", 4);
+    }
+
+    memset(uuid, 0, sizeof (uuid));
+    snprintf(uuid, sizeof (uuid), "%02hhX%02hhX-%02hhX%02hhX",
+             sb->volume_serial[3], sb->volume_serial[2],
+             sb->volume_serial[1], sb->volume_serial[0]);
+    blkid_set_tag(probe->dev, "UUID", uuid, strlen(uuid));
+
+    return 0;
+}
+
 /*
  * Various filesystem magics that we can check for.  Note that kboff and
  * sboff are in kilobytes and bytes respectively.  All magics are in
@@ -1512,6 +1643,7 @@ static struct blkid_magic type_array[] = {
   { "lvm2pv",	 1,  0x218,  8, "LVM2 001",		probe_lvm2 },
   { "btrfs",	 64,  0x40,  8, "_BHRfS_M",		probe_btrfs },
   { "f2fs",	 1,      0,  4, "\x10\x20\xf5\xf2",	probe_f2fs },
+  { "exfat",     0,      3,  8, "EXFAT   ",             probe_exfat },
   {   NULL,	 0,	 0,  0, NULL,			NULL }
 };
 
