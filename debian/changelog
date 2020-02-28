@@ -1,3 +1,9 @@
+e2fsprogs (1.44.5-1+deb10u3pexip1) pexip; urgency=medium
+
+  * Migrate to Buster
+
+ -- Vincent Sanders <vince@pexip.com>  Fri, 28 Feb 2020 13:53:36 +0000
+
 e2fsprogs (1.44.5-1+deb10u3) buster; urgency=medium
 
   * Fix CVE-2019-5188: potential stack underflow in e2fsck (Closes: #948508)
