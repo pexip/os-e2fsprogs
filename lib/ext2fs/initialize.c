@@ -28,6 +28,10 @@
 #include "ext2_fs.h"
 #include "ext2fs.h"
 
+#ifndef O_BINARY
+#define O_BINARY 0
+#endif
+
 #if defined(__linux__)    &&	defined(EXT2_OS_LINUX)
 #define CREATOR_OS EXT2_OS_LINUX
 #else
@@ -103,6 +107,7 @@ errcode_t ext2fs_initialize(const char *name, int flags,
 	char		*buf = 0;
 	char		c;
 	double		reserved_ratio;
+	char		*time_env;
 
 	if (!param || !ext2fs_blocks_count(param))
 		return EXT2_ET_INVALID_ARGUMENT;
@@ -119,11 +124,17 @@ errcode_t ext2fs_initialize(const char *name, int flags,
 #ifdef WORDS_BIGENDIAN
 	fs->flags |= EXT2_FLAG_SWAP_BYTES;
 #endif
+
+	time_env = getenv("E2FSPROGS_FAKE_TIME");
+	if (time_env)
+		fs->now = strtoul(time_env, NULL, 0);
+
 	io_flags = IO_FLAG_RW;
 	if (flags & EXT2_FLAG_EXCLUSIVE)
 		io_flags |= IO_FLAG_EXCLUSIVE;
 	if (flags & EXT2_FLAG_DIRECT_IO)
 		io_flags |= IO_FLAG_DIRECT_IO;
+	io_flags |= O_BINARY;
 	retval = manager->open(name, io_flags, &fs->io);
 	if (retval)
 		goto cleanup;
@@ -284,7 +295,7 @@ retry:
 	i = fs->blocksize >= 4096 ? 1 : 4096 / fs->blocksize;
 
 	if (ext2fs_has_feature_64bit(super) &&
-	    (ext2fs_blocks_count(super) / i) > (1ULL << 32))
+	    (ext2fs_blocks_count(super) / i) >= (1ULL << 32))
 		set_field(s_inodes_count, ~0U);
 	else
 		set_field(s_inodes_count, ext2fs_blocks_count(super) / i);
@@ -371,6 +382,13 @@ ipg_retry:
 		retval = EXT2_ET_RES_GDT_BLOCKS;
 		goto cleanup;
 	}
+	/* Enable meta_bg if we'd lose more than 3/4 of a BG to GDT blocks. */
+	if (super->s_reserved_gdt_blocks + fs->desc_blocks >
+	    super->s_blocks_per_group * 3 / 4) {
+		ext2fs_set_feature_meta_bg(fs->super);
+		ext2fs_clear_feature_resize_inode(fs->super);
+		set_field(s_reserved_gdt_blocks, 0);
+	}
 
 	/*
 	 * Calculate the maximum number of bookkeeping blocks per
@@ -380,11 +398,6 @@ ipg_retry:
 	 */
 	overhead = (int) (3 + fs->inode_blocks_per_group +
 			  super->s_reserved_gdt_blocks);
-
-	/* Enable meta_bg if we'd lose more than 3/4 of a BG to GDT blocks. */
-	if (super->s_reserved_gdt_blocks + fs->desc_blocks >
-	    super->s_blocks_per_group * 3 / 4)
-		ext2fs_set_feature_meta_bg(fs->super);
 
 	if (ext2fs_has_feature_meta_bg(fs->super))
 		overhead++;

@@ -124,8 +124,8 @@ else
 fi
 AC_USE_SYSTEM_EXTENSIONS
 dnl
-dnl Set default values for library extentions.  Will be dealt with after
-dnl parsing configuration opions, which may modify these
+dnl Set default values for library extensions.  Will be dealt with after
+dnl parsing configuration options, which may modify these
 dnl
 LIB_EXT=.a
 STATIC_LIB_EXT=.a
@@ -565,6 +565,24 @@ AC_SUBST(PROFILED_LIBBLKID)
 AC_SUBST(DEPPROFILED_LIBBLKID)
 AC_SUBST(BLKID_CMT)
 dnl
+dnl handle --enable-subset
+dnl
+ALL_CMT=
+SUBSET_CMT=
+AC_ARG_ENABLE([subset],
+[  --enable-subset  	  enable subset-only build],
+if test "$enableval" = "no"
+then
+	SUBSET_CMT=#
+	AC_MSG_RESULT([Disabling subset-only build])
+else
+	ALL_CMT=#
+	AC_MSG_RESULT([Enabling subset-only-build])
+fi
+,)
+AC_SUBST(ALL_CMT)
+AC_SUBST(SUBSET_CMT)
+dnl
 dnl handle --disable-backtrace
 dnl
 AH_TEMPLATE([DISABLE_BACKTRACE], [Define to 1 to disable use of backtrace])
@@ -862,6 +880,7 @@ AC_SUBST(BINARY_TYPE)
 AC_PROG_MAKE_SET
 CHECK_GNU_MAKE
 AC_PATH_PROG(LN, ln, ln)
+AC_PROG_MKDIR_P
 AC_PROG_LN_S
 AC_PATH_PROG(MV, mv, mv)
 AC_PATH_PROG(CP, cp, cp)
@@ -918,8 +937,10 @@ AC_CHECK_HEADERS(m4_flatten([
 	attr/xattr.h
 	linux/falloc.h
 	linux/fd.h
+	linux/fsmap.h
 	linux/major.h
 	linux/loop.h
+	linux/types.h
 	net/if_dl.h
 	netinet/in.h
 	sys/acl.h
@@ -944,7 +965,27 @@ AC_CHECK_HEADERS(m4_flatten([
 	sys/types.h
 	sys/un.h
 	sys/wait.h
+	sys/xattr.h
 ]))
+dnl Check where to find a dd(1) that supports iflag=fullblock
+dnl and oflag=append
+AC_MSG_CHECKING([for a dd(1) program that supports iflag=fullblock])
+DD=
+for i in dd gdd ; do
+	if "$i" if=/dev/null of=/dev/null count=1 bs=10k 2>/dev/null iflag=fullblock oflag=append ; then
+		DD=$i
+		break
+	fi
+done
+if test -n "$DD" ; then
+	AC_MSG_RESULT([$DD])
+else
+	AC_MSG_RESULT([not found, using dd])
+	DD=dd
+	AC_MSG_WARN([No GNU-compatible dd(1) program found, expect some self-test failures.])
+fi
+AC_SUBST([DD])
+
 AC_CHECK_HEADERS(net/if.h,,,
 [[
 #if HAVE_SYS_TYPES_H
@@ -956,7 +997,7 @@ AC_CHECK_HEADERS(net/if.h,,,
 ]])
 AC_FUNC_VPRINTF
 dnl Check to see if dirent has member d_reclen. On cygwin those d_reclen
-dnl is not decleared.
+dnl is not declared.
 AC_CHECK_MEMBER(struct dirent.d_reclen,[AC_DEFINE(HAVE_RECLEN_DIRENT, 1,
 		       [Define to 1 if dirent has d_reclen])],,
 		[#include <dirent.h>])
@@ -1094,12 +1135,15 @@ AC_CHECK_FUNCS(m4_flatten([
 	fallocate
 	fallocate64
 	fchown
+	fcntl
 	fdatasync
 	fstat64
+	fsync
 	ftruncate64
 	futimes
 	getcwd
 	getdtablesize
+	gethostname
 	getmntinfo
 	getpwuid_r
 	getrlimit
@@ -1235,16 +1279,20 @@ dnl Test for sem_init, and which library it might require:
 dnl
 AH_TEMPLATE([HAVE_SEM_INIT], [Define to 1 if sem_init() exists])
 SEM_INIT_LIB=''
-AC_CHECK_FUNC(sem_init, ,
-  AC_CHECK_LIB(pthread, sem_init,
+echo GL_THREADS_API: ${gl_threads_api}
+if test "${gl_threads_api}" != none
+then
+  AC_CHECK_FUNC(sem_init, ,
+    AC_CHECK_LIB(pthread, sem_init,
   	AC_DEFINE(HAVE_SEM_INIT, 1)
   	SEM_INIT_LIB=-lpthread,
-  AC_CHECK_LIB(rt, sem_init,
+    AC_CHECK_LIB(rt, sem_init,
   	AC_DEFINE(HAVE_SEM_INIT, 1)
   	SEM_INIT_LIB=-lrt,
-  AC_CHECK_LIB(posix4, sem_init,
+    AC_CHECK_LIB(posix4, sem_init,
   	AC_DEFINE(HAVE_SEM_INIT, 1)
   	SEM_INIT_LIB=-lposix4))))dnl
+fi
 AC_SUBST(SEM_INIT_LIB)
 dnl
 dnl Check for unified diff
@@ -1422,7 +1470,6 @@ if test -n "$WITH_DIET_LIBC" ; then
 	INCLUDES="$INCLUDES -D_REENTRANT"
 fi
 AC_SUBST(INCLUDES)
-AM_MKINSTALLDIRS
 dnl
 dnl Build CFLAGS
 dnl
@@ -1457,7 +1504,7 @@ if test -z "$BLKID_CMT" ; then
 	blkid_out_list="lib/blkid/Makefile lib/blkid/blkid.pc \
 		lib/blkid/blkid_types.h"
 fi
-for i in MCONFIG Makefile e2fsprogs.spec \
+for i in MCONFIG Makefile \
 	util/Makefile util/subst.conf util/gen-tarball util/install-symlink \
 	lib/et/Makefile lib/ss/Makefile lib/e2p/Makefile \
 	lib/ext2fs/Makefile lib/ext2fs/ext2_types.h \
