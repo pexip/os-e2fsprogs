@@ -19,6 +19,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <limits.h> /* for PATH_MAX */
+#include <dirent.h> /* for scandir() and alphasort() */
 #if defined HAVE_SYS_XATTR_H
 #include <sys/xattr.h>
 #elif defined HAVE_ATTR_XATTR_H
@@ -120,8 +121,10 @@ static errcode_t set_inode_extra(ext2_filsys fs, ext2_ino_t ino,
 	}
 
 	inode.i_uid = st->st_uid;
+	ext2fs_set_i_uid_high(inode, st->st_uid >> 16);
 	inode.i_gid = st->st_gid;
-	inode.i_mode |= st->st_mode;
+	ext2fs_set_i_gid_high(inode, st->st_gid >> 16);
+	inode.i_mode = (LINUX_S_IFMT & inode.i_mode) | (~S_IFMT & st->st_mode);
 	inode.i_atime = st->st_atime;
 	inode.i_mtime = st->st_mtime;
 	inode.i_ctime = st->st_ctime;
@@ -161,6 +164,13 @@ static errcode_t set_inode_xattr(ext2_filsys fs, ext2_ino_t ino,
 			return 0;
 		com_err(__func__, retval, _("while opening inode %u"), ino);
 		return retval;
+	}
+
+	retval = ext2fs_xattrs_read(handle);
+	if (retval) {
+		com_err(__func__, retval,
+			_("while reading xattrs for inode %u"), ino);
+		goto out;
 	}
 
 	retval = ext2fs_get_mem(size, &list);
@@ -438,8 +448,8 @@ static errcode_t copy_file_chunk(ext2_filsys fs, int fd, ext2_file_t e2_file,
 				ptr += blen;
 				continue;
 			}
-			err = ext2fs_file_lseek(e2_file, off + bpos,
-						EXT2_SEEK_SET, NULL);
+			err = ext2fs_file_llseek(e2_file, off + bpos,
+						 EXT2_SEEK_SET, NULL);
 			if (err)
 				goto fail;
 			while (blen > 0) {
@@ -480,8 +490,9 @@ static errcode_t try_lseek_copy(ext2_filsys fs, int fd, struct stat *statbuf,
 		if (hole < 0)
 			return EXT2_ET_UNIMPLEMENTED;
 
-		data_blk = data & ~(fs->blocksize - 1);
-		hole_blk = (hole + (fs->blocksize - 1)) & ~(fs->blocksize - 1);
+		data_blk = data & ~(off_t)(fs->blocksize - 1);
+		hole_blk = ((hole + (off_t)(fs->blocksize - 1)) &
+			    ~(off_t)(fs->blocksize - 1));
 		err = copy_file_chunk(fs, fd, e2_file, data_blk, hole_blk, buf,
 				      zerobuf);
 		if (err)
@@ -615,9 +626,10 @@ errcode_t do_write_internal(ext2_filsys fs, ext2_ino_t cwd, const char *src,
 {
 	int		fd;
 	struct stat	statbuf;
-	ext2_ino_t	newfile;
+	ext2_ino_t	newfile, parent_ino;
 	errcode_t	retval;
 	struct ext2_inode inode;
+	char		*cp;
 
 	fd = ext2fs_open_file(src, O_RDONLY, 0);
 	if (fd < 0) {
@@ -631,25 +643,37 @@ errcode_t do_write_internal(ext2_filsys fs, ext2_ino_t cwd, const char *src,
 		goto out;
 	}
 
-	retval = ext2fs_namei(fs, root, cwd, dest, &newfile);
+	cp = strrchr(dest, '/');
+	if (cp) {
+		*cp = 0;
+		retval = ext2fs_namei(fs, root, cwd, dest, &parent_ino);
+		if (retval) {
+			com_err(dest, retval, _("while looking up \"%s\""),
+				dest);
+			goto out;
+		}
+		dest = cp+1;
+	} else
+		parent_ino = cwd;
+
+	retval = ext2fs_namei(fs, root, parent_ino, dest, &newfile);
 	if (retval == 0) {
 		retval = EXT2_ET_FILE_EXISTS;
 		goto out;
 	}
 
-	retval = ext2fs_new_inode(fs, cwd, 010755, 0, &newfile);
+	retval = ext2fs_new_inode(fs, parent_ino, 010755, 0, &newfile);
 	if (retval)
 		goto out;
 #ifdef DEBUGFS
 	printf("Allocated inode: %u\n", newfile);
 #endif
-	retval = ext2fs_link(fs, cwd, dest, newfile,
-				EXT2_FT_REG_FILE);
+	retval = ext2fs_link(fs, parent_ino, dest, newfile, EXT2_FT_REG_FILE);
 	if (retval == EXT2_ET_DIR_NO_SPACE) {
-		retval = ext2fs_expand_dir(fs, cwd);
+		retval = ext2fs_expand_dir(fs, parent_ino);
 		if (retval)
 			goto out;
-		retval = ext2fs_link(fs, cwd, dest, newfile,
+		retval = ext2fs_link(fs, parent_ino, dest, newfile,
 					EXT2_FT_REG_FILE);
 	}
 	if (retval)
@@ -658,7 +682,7 @@ errcode_t do_write_internal(ext2_filsys fs, ext2_ino_t cwd, const char *src,
 		com_err(__func__, 0, "Warning: inode already set");
 	ext2fs_inode_alloc_stats2(fs, newfile, +1, 0);
 	memset(&inode, 0, sizeof(inode));
-	inode.i_mode = (statbuf.st_mode & ~LINUX_S_IFMT) | LINUX_S_IFREG;
+	inode.i_mode = (statbuf.st_mode & ~S_IFMT) | LINUX_S_IFREG;
 	inode.i_atime = inode.i_ctime = inode.i_mtime =
 		fs->now ? fs->now : time(0);
 	inode.i_links_count = 1;
@@ -704,17 +728,81 @@ struct file_info {
 static errcode_t path_append(struct file_info *target, const char *file)
 {
 	if (strlen(file) + target->path_len + 1 > target->path_max_len) {
+		void *p;
 		target->path_max_len *= 2;
-		target->path = realloc(target->path, target->path_max_len);
-		if (!target->path)
+		p = realloc(target->path, target->path_max_len);
+		if (p == NULL)
 			return EXT2_ET_NO_MEMORY;
+		target->path = p;
 	}
 	target->path_len += sprintf(target->path + target->path_len, "/%s",
 				    file);
 	return 0;
 }
 
-/* Copy files from source_dir to fs */
+#ifdef _WIN32
+static int scandir(const char *dir_name, struct dirent ***name_list,
+		   int (*filter)(const struct dirent*),
+		   int (*compar)(const struct dirent**, const struct dirent**)) {
+	DIR *dir;
+	struct dirent *dent;
+	struct dirent **temp_list = NULL;
+	size_t temp_list_size = 0; // unit: num of dirent
+	size_t num_dent = 0;
+
+	dir = opendir(dir_name);
+	if (dir == NULL) {
+		return -1;
+	}
+
+	while ((dent = readdir(dir))) {
+		if (filter != NULL && !(*filter)(dent))
+			continue;
+
+		// re-allocate the list
+		if (num_dent == temp_list_size) {
+			size_t new_list_size = temp_list_size + 32;
+			struct dirent **new_list = (struct dirent**)realloc(
+				temp_list, new_list_size * sizeof(struct dirent*));
+			if (new_list == NULL) {
+				goto out;
+			}
+			temp_list_size = new_list_size;
+			temp_list = new_list;
+		}
+		// add the copy of dirent to the list
+		temp_list[num_dent] = (struct dirent*)malloc((dent->d_reclen + 3) & ~3);
+		memcpy(temp_list[num_dent], dent, dent->d_reclen);
+		num_dent++;
+	}
+
+	if (compar != NULL) {
+		qsort(temp_list, num_dent, sizeof(struct dirent*),
+		      (int (*)(const void*, const void*))compar);
+	}
+
+        // release the temp list
+	*name_list = temp_list;
+	temp_list = NULL;
+
+out:
+	if (temp_list != NULL) {
+		while (num_dent > 0) {
+			free(temp_list[--num_dent]);
+		}
+		free(temp_list);
+		num_dent = -1;
+	}
+	closedir(dir);
+	return num_dent;
+}
+
+static int alphasort(const struct dirent **a, const struct dirent **b) {
+	return strcoll((*a)->d_name, (*b)->d_name);
+}
+#endif
+
+/* Copy files from source_dir to fs in alphabetical order */
 static errcode_t __populate_fs(ext2_filsys fs, ext2_ino_t parent_ino,
 			       const char *source_dir, ext2_ino_t root,
 			       struct hdlinks_s *hdlinks,
@@ -722,8 +810,7 @@ static errcode_t __populate_fs(ext2_filsys fs, ext2_ino_t parent_ino,
 			       struct fs_ops_callbacks *fs_callbacks)
 {
 	const char	*name;
-	DIR		*dh;
-	struct dirent	*dent;
+	struct dirent	**dent;
 	struct stat	st;
 	char		*ln_target = NULL;
 	unsigned int	save_inode;
@@ -732,6 +819,7 @@ static errcode_t __populate_fs(ext2_filsys fs, ext2_ino_t parent_ino,
 	int		read_cnt;
 	int		hdlink;
 	size_t		cur_dir_path_len;
+	int		i, num_dents;
 
 	if (chdir(source_dir) < 0) {
 		retval = errno;
@@ -741,24 +829,25 @@ static errcode_t __populate_fs(ext2_filsys fs, ext2_ino_t parent_ino,
 		return retval;
 	}
 
-	if (!(dh = opendir("."))) {
+	num_dents = scandir(".", &dent, NULL, alphasort);
+
+	if (num_dents < 0) {
 		retval = errno;
 		com_err(__func__, retval,
-			_("while opening directory \"%s\""), source_dir);
+			_("while scanning directory \"%s\""), source_dir);
 		return retval;
 	}
 
-	while ((dent = readdir(dh))) {
-		if ((!strcmp(dent->d_name, ".")) ||
-		    (!strcmp(dent->d_name, "..")))
+	for (i = 0; i < num_dents; free(dent[i]), i++) {
+		name = dent[i]->d_name;
+		if ((!strcmp(name, ".")) || (!strcmp(name, "..")))
 			continue;
-		if (lstat(dent->d_name, &st)) {
+		if (lstat(name, &st)) {
 			retval = errno;
 			com_err(__func__, retval, _("while lstat \"%s\""),
-				dent->d_name);
+				name);
 			goto out;
 		}
-		name = dent->d_name;
 
 		/* Check for hardlinks */
 		save_inode = 0;
@@ -950,7 +1039,8 @@ find_lnf:
 	}
 
 out:
-	closedir(dh);
+	for (; i < num_dents; free(dent[i]), i++);
+	free(dent);
 	return retval;
 }
 
@@ -980,9 +1070,17 @@ errcode_t populate_fs2(ext2_filsys fs, ext2_ino_t parent_ino,
 	file_info.path_max_len = 255;
 	file_info.path = calloc(file_info.path_max_len, 1);
 
+	retval = set_inode_xattr(fs, root, source_dir);
+	if (retval) {
+		com_err(__func__, retval,
+			_("while copying xattrs on root directory"));
+		goto out;
+	}
+
 	retval = __populate_fs(fs, parent_ino, source_dir, root, &hdlinks,
 			       &file_info, fs_callbacks);
 
+out:
 	free(file_info.path);
 	free(hdlinks.hdl);
 	return retval;

@@ -61,6 +61,14 @@ This feature requires that the
 .B extent
 feature be enabled.
 .TP
+.B casefold
+.br
+This ext4 feature provides file system level character encoding support
+for directories with the casefold (+F) flag enabled.  This feature is
+name-preserving on the disk, but it allows applications to lookup for a
+file in the file system using an encoding equivalent version of the file
+name.
+.TP
 .B dir_index
 .br
 Use hashed b-trees to speed up name lookups in large directories.  This
@@ -88,9 +96,9 @@ extended attributes per file.
 .TP
 .B encrypt
 .br
-This ext4 feature provides file-system level encryption of data blocks
-and file names.  The inode metadata (timestamps, file size, user/group
-ownership, etc.) is
+Enables support for file-system level encryption of data blocks and file
+names.  The inode metadata (timestamps, file size, user/group ownership,
+etc.) is
 .I not
 encrypted.
 .IP
@@ -291,6 +299,20 @@ feature is essentially a more extreme version of sparse_super and is
 designed to allow a much larger percentage of the disk to have
 contiguous blocks available for data files.
 .TP
+.B stable_inodes
+.br
+Marks the filesystem's inode numbers and UUID as stable.
+.BR resize2fs (8)
+will not allow shrinking a filesystem with this feature, nor
+will
+.BR tune2fs (8)
+allow changing its UUID.  This feature allows the use of specialized encryption
+settings that make use of the inode numbers and UUID.  Note that the
+.B encrypt
+feature still needs to be enabled separately.
+.B stable_inodes
+is a "compat" feature, so old kernels will allow it.
+.TP
 .B uninit_bg
 .br
 This ext4 file system feature indicates that the block group descriptors
@@ -304,6 +326,18 @@ the file system using
 and it also speeds up the time required for
 .BR mke2fs (8)
 to create the file system.
+.TP
+.B verity
+.br
+Enables support for verity protected files.  Verity files are readonly,
+and their data is transparently verified against a Merkle tree hidden
+past the end of the file.  Using the Merkle tree's root hash, a verity
+file can be efficiently authenticated, independent of the file's size.
+.IP
+This feature is most useful for authenticating important read-only files
+on read-write file systems.  If the file system itself is read-only,
+then using dm-verity to authenticate the entire block device may provide
+much better security.
 .SH MOUNT OPTIONS
 This section describes mount options which are specific to ext2, ext3,
 and ext4.  Other generic mount options may be used as well; see
@@ -764,6 +798,12 @@ ext4, 4.5
 ext4, 4.13
 .IP "\fBlarge_dir\fR" 2i
 ext4, 4.13
+.IP "\fBcasefold\fR" 2i
+ext4, 5.2
+.IP "\fBverity\fR" 2i
+ext4, 5.4
+.IP "\fBstable_inodes\fR" 2i
+ext4, 5.5
 .SH SEE ALSO
 .BR mke2fs (8),
 .BR mke2fs.conf (5),
