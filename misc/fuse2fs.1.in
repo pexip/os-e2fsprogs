@@ -42,8 +42,14 @@ dump core on error
 \fB-o\fR minixdf
 minix-style df
 .TP
+\fB-o\fR fakeroot
+pretend to be root for permission checks
+.TP
 \fB-o\fR no_default_opts
 do not include default fuse options
+.TP
+\fB-o\fR norecovery
+do not replay the journal and mount the file system read-only
 .TP
 \fB-o\fR fuse2fs_debug
 enable fuse2fs debugging
