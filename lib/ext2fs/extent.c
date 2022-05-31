@@ -1737,6 +1737,121 @@ size_t ext2fs_max_extent_depth(ext2_extent_handle_t handle)
 	return last_result;
 }
 
+errcode_t ext2fs_fix_extents_checksums(ext2_filsys fs, ext2_ino_t ino,
+				       struct ext2_inode *inode)
+{
+	ext2_extent_handle_t	handle;
+	struct ext2fs_extent	extent;
+	errcode_t		errcode;
+	int    			save_flags = fs->flags;
+
+	if (!ext2fs_has_feature_metadata_csum(fs->super) ||
+	    (inode && !(inode->i_flags & EXT4_EXTENTS_FL)))
+		return 0;
+
+	errcode = ext2fs_extent_open2(fs, ino, inode, &handle);
+	if (errcode) {
+		if (errcode == EXT2_ET_INODE_NOT_EXTENT)
+			errcode = 0;
+		return errcode;
+	}
+
+	fs->flags &= ~EXT2_FLAG_IGNORE_CSUM_ERRORS;
+	errcode = ext2fs_extent_get(handle, EXT2_EXTENT_ROOT, &extent);
+	if (errcode)
+		goto out;
+
+	do {
+		/* Skip to the end of a block of leaf nodes */
+		if (extent.e_flags & EXT2_EXTENT_FLAGS_LEAF) {
+			errcode = ext2fs_extent_get(handle,
+						    EXT2_EXTENT_LAST_SIB,
+						    &extent);
+			if (errcode)
+				break;
+		}
+
+		errcode = ext2fs_extent_get(handle, EXT2_EXTENT_NEXT, &extent);
+		if (errcode == EXT2_ET_EXTENT_CSUM_INVALID)
+			errcode = update_path(handle);
+	} while (errcode == 0);
+
+out:
+	/* Ok if we run off the end */
+	if (errcode == EXT2_ET_EXTENT_NO_NEXT)
+		errcode = 0;
+	ext2fs_extent_free(handle);
+	fs->flags = save_flags;
+	return errcode;
+}
+
+errcode_t ext2fs_decode_extent(struct ext2fs_extent *to, void *addr, int len)
+{
+	struct ext3_extent *from = (struct ext3_extent *)addr;
+
+	if (len != sizeof(struct ext3_extent))
+		return EXT2_ET_INVALID_ARGUMENT;
+
+	to->e_pblk = ext2fs_le32_to_cpu(from->ee_start) +
+		((__u64) ext2fs_le16_to_cpu(from->ee_start_hi)
+			<< 32);
+	to->e_lblk = ext2fs_le32_to_cpu(from->ee_block);
+	to->e_len = ext2fs_le16_to_cpu(from->ee_len);
+	to->e_flags = EXT2_EXTENT_FLAGS_LEAF;
+	if (to->e_len > EXT_INIT_MAX_LEN) {
+		to->e_len -= EXT_INIT_MAX_LEN;
+		to->e_flags |= EXT2_EXTENT_FLAGS_UNINIT;
+	}
+
+	return 0;
+}
+
+errcode_t ext2fs_count_blocks(ext2_filsys fs, ext2_ino_t ino,
+			      struct ext2_inode *inode, blk64_t *ret_count)
+{
+	ext2_extent_handle_t	handle = NULL;
+	struct ext2fs_extent	extent;
+	errcode_t		errcode;
+	int			i;
+	blk64_t			blkcount = 0;
+	blk64_t			*intermediate_nodes;
+
+	errcode = ext2fs_extent_open2(fs, ino, inode, &handle);
+	if (errcode)
+		goto out;
+
+	errcode = ext2fs_extent_get(handle, EXT2_EXTENT_ROOT, &extent);
+	if (errcode)
+		goto out;
+
+	errcode = ext2fs_get_array(handle->max_depth, sizeof(blk64_t),
+				   &intermediate_nodes);
+	if (errcode)
+		goto out;
+
+	blkcount = handle->level;
+	while (!errcode) {
+		if (extent.e_flags & EXT2_EXTENT_FLAGS_LEAF) {
+			blkcount += extent.e_len;
+			for (i = 0; i < handle->level; i++) {
+				if (intermediate_nodes[i] !=
+					handle->path[i].end_blk) {
+					blkcount++;
+					intermediate_nodes[i] =
+						handle->path[i].end_blk;
+				}
+			}
+		}
+		errcode = ext2fs_extent_get(handle, EXT2_EXTENT_NEXT, &extent);
+	}
+	ext2fs_free_mem(&intermediate_nodes);
+out:
+	*ret_count = blkcount;
+	ext2fs_extent_free(handle);
+
+	return 0;
+}
+
 #ifdef DEBUG
 /*
  * Override debugfs's prompt
