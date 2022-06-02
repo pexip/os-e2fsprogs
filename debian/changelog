@@ -1,3 +1,9 @@
+e2fsprogs (1.46.2-2pexip1) pexip; urgency=medium
+
+  * Initial bullseye build
+
+ -- Mark Hymers <mark.hymers@pexip.com>  Thu, 02 Jun 2022 14:42:09 +0100
+
 e2fsprogs (1.46.2-2) unstable; urgency=medium
 
   * Fix FTBFS on arm32 when building on a system with an arm64 kernel.
