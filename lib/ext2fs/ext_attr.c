@@ -48,7 +48,8 @@ static errcode_t read_ea_inode_hash(ext2_filsys fs, ext2_ino_t ino, __u32 *hash)
 __u32 ext2fs_ext_attr_hash_entry(struct ext2_ext_attr_entry *entry, void *data)
 {
 	__u32 hash = 0;
-	char *name = ((char *) entry) + sizeof(struct ext2_ext_attr_entry);
+	unsigned char *name = (((unsigned char *) entry) +
+			       sizeof(struct ext2_ext_attr_entry));
 	int n;
 
 	for (n = 0; n < entry->e_name_len; n++) {
@@ -71,18 +72,51 @@ __u32 ext2fs_ext_attr_hash_entry(struct ext2_ext_attr_entry *entry, void *data)
 	return hash;
 }
 
+__u32 ext2fs_ext_attr_hash_entry_signed(struct ext2_ext_attr_entry *entry,
+					void *data)
+{
+	__u32 hash = 0;
+	signed char *name = (((signed char *) entry) +
+			     sizeof(struct ext2_ext_attr_entry));
+	int n;
+
+	for (n = 0; n < entry->e_name_len; n++) {
+		hash = (hash << NAME_HASH_SHIFT) ^
+		       (hash >> (8*sizeof(hash) - NAME_HASH_SHIFT)) ^
+		       *name++;
+	}
+
+	/* The hash needs to be calculated on the data in little-endian. */
+	if (entry->e_value_inum == 0 && entry->e_value_size != 0) {
+		__u32 *value = (__u32 *)data;
+		for (n = (entry->e_value_size + EXT2_EXT_ATTR_ROUND) >>
+			 EXT2_EXT_ATTR_PAD_BITS; n; n--) {
+			hash = (hash << VALUE_HASH_SHIFT) ^
+			       (hash >> (8*sizeof(hash) - VALUE_HASH_SHIFT)) ^
+			       ext2fs_le32_to_cpu(*value++);
+		}
+	}
+
+	return hash;
+}
+
+
 /*
- * ext2fs_ext_attr_hash_entry2()
+ * ext2fs_ext_attr_hash_entry3()
  *
- * Compute the hash of an extended attribute.
- * This version of the function supports hashing entries that reference
- * external inodes (ea_inode feature).
+ * Compute the hash of an extended attribute.  This version of the
+ * function supports hashing entries that reference external inodes
+ * (ea_inode feature) as well as calculating the old legacy signed
+ * hash variant.
  */
-errcode_t ext2fs_ext_attr_hash_entry2(ext2_filsys fs,
+errcode_t ext2fs_ext_attr_hash_entry3(ext2_filsys fs,
 				      struct ext2_ext_attr_entry *entry,
-				      void *data, __u32 *hash)
+				      void *data, __u32 *hash,
+				      __u32 *signed_hash)
 {
 	*hash = ext2fs_ext_attr_hash_entry(entry, data);
+	if (signed_hash)
+		*signed_hash = ext2fs_ext_attr_hash_entry_signed(entry, data);
 
 	if (entry->e_value_inum) {
 		__u32 ea_inode_hash;
@@ -96,8 +130,27 @@ errcode_t ext2fs_ext_attr_hash_entry2(ext2_filsys fs,
 		*hash = (*hash << VALUE_HASH_SHIFT) ^
 			(*hash >> (8*sizeof(*hash) - VALUE_HASH_SHIFT)) ^
 			ea_inode_hash;
+		if (signed_hash)
+			*signed_hash = (*signed_hash << VALUE_HASH_SHIFT) ^
+				(*signed_hash >> (8*sizeof(*hash) -
+						  VALUE_HASH_SHIFT)) ^
+				ea_inode_hash;
 	}
 	return 0;
+}
+
+/*
+ * ext2fs_ext_attr_hash_entry2()
+ *
+ * Compute the hash of an extended attribute.
+ * This version of the function supports hashing entries that reference
+ * external inodes (ea_inode feature).
+ */
+errcode_t ext2fs_ext_attr_hash_entry2(ext2_filsys fs,
+				      struct ext2_ext_attr_entry *entry,
+				      void *data, __u32 *hash)
+{
+	return ext2fs_ext_attr_hash_entry3(fs, entry, data, hash, NULL);
 }
 
 #undef NAME_HASH_SHIFT
@@ -556,10 +609,10 @@ static errcode_t convert_posix_acl_to_disk_buffer(const void *value, size_t size
 	s = sizeof(ext4_acl_header);
 	for (end = entry + count; entry != end;entry++) {
 		ext4_acl_entry *disk_entry = (ext4_acl_entry*) e;
-		disk_entry->e_tag = ext2fs_cpu_to_le16(entry->e_tag);
-		disk_entry->e_perm = ext2fs_cpu_to_le16(entry->e_perm);
+		disk_entry->e_tag = entry->e_tag;
+		disk_entry->e_perm = entry->e_perm;
 
-		switch(entry->e_tag) {
+		switch(ext2fs_le16_to_cpu(entry->e_tag)) {
 			case ACL_USER_OBJ:
 			case ACL_GROUP_OBJ:
 			case ACL_MASK:
@@ -569,10 +622,12 @@ static errcode_t convert_posix_acl_to_disk_buffer(const void *value, size_t size
 				break;
 			case ACL_USER:
 			case ACL_GROUP:
-				disk_entry->e_id =  ext2fs_cpu_to_le32(entry->e_id);
+				disk_entry->e_id = entry->e_id;
 				e += sizeof(ext4_acl_entry);
 				s += sizeof(ext4_acl_entry);
 				break;
+			default:
+				return EINVAL;
 		}
 	}
 	*size_out = s;
@@ -608,10 +663,10 @@ static errcode_t convert_disk_buffer_to_posix_acl(const void *value, size_t size
 	while (size > 0) {
 		const ext4_acl_entry *disk_entry = (const ext4_acl_entry *) cp;
 
-		entry->e_tag = ext2fs_le16_to_cpu(disk_entry->e_tag);
-		entry->e_perm = ext2fs_le16_to_cpu(disk_entry->e_perm);
+		entry->e_tag = disk_entry->e_tag;
+		entry->e_perm = disk_entry->e_perm;
 
-		switch(entry->e_tag) {
+		switch(ext2fs_le16_to_cpu(entry->e_tag)) {
 			case ACL_USER_OBJ:
 			case ACL_GROUP_OBJ:
 			case ACL_MASK:
@@ -622,13 +677,13 @@ static errcode_t convert_disk_buffer_to_posix_acl(const void *value, size_t size
 				break;
 			case ACL_USER:
 			case ACL_GROUP:
-				entry->e_id = ext2fs_le32_to_cpu(disk_entry->e_id);
+				entry->e_id = disk_entry->e_id;
 				cp += sizeof(ext4_acl_entry);
 				size -= sizeof(ext4_acl_entry);
 				break;
-		default:
-			ext2fs_free_mem(&out);
-			return EINVAL;
+			default:
+				ext2fs_free_mem(&out);
+				return EINVAL;
 		}
 		entry++;
 	}
@@ -938,15 +993,18 @@ static errcode_t read_xattrs_from_buffer(struct ext2_xattr_handle *handle,
 
 		/* e_hash may be 0 in older inode's ea */
 		if (entry->e_hash != 0) {
-			__u32 hash;
+			__u32 hash, signed_hash;
+
 			void *data = (entry->e_value_inum != 0) ?
 					0 : value_start + entry->e_value_offs;
 
-			err = ext2fs_ext_attr_hash_entry2(handle->fs, entry,
-							  data, &hash);
+			err = ext2fs_ext_attr_hash_entry3(handle->fs, entry,
+							  data, &hash,
+							  &signed_hash);
 			if (err)
 				return err;
-			if (entry->e_hash != hash) {
+			if ((entry->e_hash != hash) &&
+			    (entry->e_hash != signed_hash)) {
 				struct ext2_inode child;
 
 				/* Check whether this is an old Lustre-style
@@ -985,30 +1043,18 @@ static void xattrs_free_keys(struct ext2_xattr_handle *h)
 	h->ibody_count = 0;
 }
 
-errcode_t ext2fs_xattrs_read(struct ext2_xattr_handle *handle)
+/* fetch xattrs from an already-loaded inode */
+errcode_t ext2fs_xattrs_read_inode(struct ext2_xattr_handle *handle,
+				   struct ext2_inode_large *inode)
 {
-	struct ext2_inode_large *inode;
 	struct ext2_ext_attr_header *header;
 	__u32 ea_inode_magic;
 	unsigned int storage_size;
 	char *start, *block_buf = NULL;
 	blk64_t blk;
-	size_t i;
-	errcode_t err;
+	errcode_t err = 0;
 
 	EXT2_CHECK_MAGIC(handle, EXT2_ET_MAGIC_EA_HANDLE);
-	i = EXT2_INODE_SIZE(handle->fs->super);
-	if (i < sizeof(*inode))
-		i = sizeof(*inode);
-	err = ext2fs_get_memzero(i, &inode);
-	if (err)
-		return err;
-
-	err = ext2fs_read_inode_full(handle->fs, handle->ino,
-				     (struct ext2_inode *)inode,
-				     EXT2_INODE_SIZE(handle->fs->super));
-	if (err)
-		goto out;
 
 	xattrs_free_keys(handle);
 
@@ -1044,7 +1090,7 @@ errcode_t ext2fs_xattrs_read(struct ext2_xattr_handle *handle)
 
 read_ea_block:
 	/* Look for EA in a separate EA block */
-	blk = ext2fs_file_acl_block(handle->fs, (struct ext2_inode *)inode);
+	blk = ext2fs_file_acl_block(handle->fs, EXT2_INODE(inode));
 	if (blk != 0) {
 		if ((blk < handle->fs->super->s_first_data_block) ||
 		    (blk >= ext2fs_blocks_count(handle->fs->super))) {
@@ -1075,20 +1121,39 @@ read_ea_block:
 		err = read_xattrs_from_buffer(handle, inode,
 					(struct ext2_ext_attr_entry *) start,
 					storage_size, block_buf);
-		if (err)
-			goto out3;
-
-		ext2fs_free_mem(&block_buf);
 	}
 
-	ext2fs_free_mem(&block_buf);
-	ext2fs_free_mem(&inode);
-	return 0;
-
 out3:
-	ext2fs_free_mem(&block_buf);
+	if (block_buf)
+		ext2fs_free_mem(&block_buf);
+out:
+	return err;
+}
+
+errcode_t ext2fs_xattrs_read(struct ext2_xattr_handle *handle)
+{
+	struct ext2_inode_large *inode;
+	size_t inode_size = EXT2_INODE_SIZE(handle->fs->super);
+	errcode_t err;
+
+	EXT2_CHECK_MAGIC(handle, EXT2_ET_MAGIC_EA_HANDLE);
+
+	if (inode_size < sizeof(*inode))
+		inode_size = sizeof(*inode);
+	err = ext2fs_get_memzero(inode_size, &inode);
+	if (err)
+		return err;
+
+	err = ext2fs_read_inode_full(handle->fs, handle->ino, EXT2_INODE(inode),
+				     EXT2_INODE_SIZE(handle->fs->super));
+	if (err)
+		goto out;
+
+	err = ext2fs_xattrs_read_inode(handle, inode);
+
 out:
 	ext2fs_free_mem(&inode);
+
 	return err;
 }
 

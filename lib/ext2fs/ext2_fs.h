@@ -27,6 +27,18 @@
 #endif
 #endif
 
+#ifndef __nonstring
+#ifdef __has_attribute
+#if __has_attribute(__nonstring__)
+#define __nonstring                    __attribute__((__nonstring__))
+#else
+#define __nonstring
+#endif /* __has_attribute(__nonstring__) */
+#else
+# define __nonstring
+#endif /* __has_attribute */
+#endif /* __nonstring */
+
 /*
  * The second extended filesystem constants/structures
  */
@@ -525,8 +537,8 @@ struct ext2_inode_large {
 #endif  /* __GNU__ */
 #endif	/* defined(__KERNEL__) || defined(__linux__) */
 
-#define inode_uid(inode)	((inode).i_uid | (inode).osd2.linux2.l_i_uid_high << 16)
-#define inode_gid(inode)	((inode).i_gid | (inode).osd2.linux2.l_i_gid_high << 16)
+#define inode_uid(inode)	((inode).i_uid | (unsigned)(inode).osd2.linux2.l_i_uid_high << 16)
+#define inode_gid(inode)	((inode).i_gid | (unsigned)(inode).osd2.linux2.l_i_gid_high << 16)
 #define inode_projid(inode)	((inode).i_projid)
 #define ext2fs_set_i_uid_high(inode,x) ((inode).osd2.linux2.l_i_uid_high = (x))
 #define ext2fs_set_i_gid_high(inode,x) ((inode).osd2.linux2.l_i_gid_high = (x))
@@ -683,9 +695,9 @@ struct ext2_super_block {
 	__u32	s_feature_compat;	/* compatible feature set */
 /*060*/	__u32	s_feature_incompat;	/* incompatible feature set */
 	__u32	s_feature_ro_compat;	/* readonly-compatible feature set */
-/*068*/	__u8	s_uuid[16];		/* 128-bit uuid for volume */
-/*078*/	__u8	s_volume_name[EXT2_LABEL_LEN];	/* volume name, no NUL? */
-/*088*/	__u8	s_last_mounted[64];	/* directory last mounted on, no NUL? */
+/*068*/	__u8	s_uuid[16] __nonstring;		/* 128-bit uuid for volume */
+/*078*/	__u8	s_volume_name[EXT2_LABEL_LEN] __nonstring;	/* volume name, no NUL? */
+/*088*/	__u8	s_last_mounted[64] __nonstring;	/* directory last mounted on, no NUL? */
 /*0c8*/	__u32	s_algorithm_usage_bitmap; /* For compression */
 	/*
 	 * Performance hints.  Directory preallocation should only
@@ -697,7 +709,7 @@ struct ext2_super_block {
 	/*
 	 * Journaling support valid if EXT2_FEATURE_COMPAT_HAS_JOURNAL set.
 	 */
-/*0d0*/	__u8	s_journal_uuid[16];	/* uuid of journal superblock */
+/*0d0*/	__u8	s_journal_uuid[16] __nonstring;	/* uuid of journal superblock */
 /*0e0*/	__u32	s_journal_inum;		/* inode number of journal file */
 	__u32	s_journal_dev;		/* device number of journal file */
 	__u32	s_last_orphan;		/* start of list of inodes to delete */
@@ -733,15 +745,15 @@ struct ext2_super_block {
 	__u32	s_first_error_time;	/* first time an error happened */
 	__u32	s_first_error_ino;	/* inode involved in first error */
 /*1a0*/	__u64	s_first_error_block;	/* block involved in first error */
-	__u8	s_first_error_func[32];	/* function where error hit, no NUL? */
+	__u8	s_first_error_func[32] __nonstring;	/* function where error hit, no NUL? */
 /*1c8*/	__u32	s_first_error_line;	/* line number where error happened */
 	__u32	s_last_error_time;	/* most recent time of an error */
 /*1d0*/	__u32	s_last_error_ino;	/* inode involved in last error */
 	__u32	s_last_error_line;	/* line number where error happened */
 	__u64	s_last_error_block;	/* block involved of last error */
-/*1e0*/	__u8	s_last_error_func[32];	/* function where error hit, no NUL? */
+/*1e0*/	__u8	s_last_error_func[32] __nonstring;	/* function where error hit, no NUL? */
 #define EXT4_S_ERR_END ext4_offsetof(struct ext2_super_block, s_mount_opts)
-/*200*/	__u8	s_mount_opts[64];	/* default mount options, no NUL? */
+/*200*/	__u8	s_mount_opts[64] __nonstring;	/* default mount options, no NUL? */
 /*240*/	__u32	s_usr_quota_inum;	/* inode number of user quota file */
 	__u32	s_grp_quota_inum;	/* inode number of group quota file */
 	__u32	s_overhead_clusters;	/* overhead blocks/clusters in fs */
@@ -761,7 +773,8 @@ struct ext2_super_block {
 	__u8    s_last_error_errcode;
 /*27c*/ __le16	s_encoding;		/* Filename charset encoding */
 	__le16	s_encoding_flags;	/* Filename charset encoding flags */
-	__le32	s_reserved[95];		/* Padding to the end of the block */
+	__le32  s_orphan_file_inum;	/* Inode for tracking orphan inodes */
+	__le32	s_reserved[94];		/* Padding to the end of the block */
 /*3fc*/	__u32	s_checksum;		/* crc32c(superblock) */
 };
 
@@ -816,7 +829,7 @@ struct ext2_super_block {
 #define EXT4_FEATURE_COMPAT_SPARSE_SUPER2	0x0200
 #define EXT4_FEATURE_COMPAT_FAST_COMMIT		0x0400
 #define EXT4_FEATURE_COMPAT_STABLE_INODES	0x0800
-
+#define EXT4_FEATURE_COMPAT_ORPHAN_FILE		0x1000
 
 #define EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER	0x0001
 #define EXT2_FEATURE_RO_COMPAT_LARGE_FILE	0x0002
@@ -839,6 +852,7 @@ struct ext2_super_block {
 #define EXT4_FEATURE_RO_COMPAT_PROJECT		0x2000 /* Project quota */
 #define EXT4_FEATURE_RO_COMPAT_SHARED_BLOCKS	0x4000
 #define EXT4_FEATURE_RO_COMPAT_VERITY		0x8000
+#define EXT4_FEATURE_RO_COMPAT_ORPHAN_PRESENT	0x10000
 
 #define EXT2_FEATURE_INCOMPAT_COMPRESSION	0x0001
 #define EXT2_FEATURE_INCOMPAT_FILETYPE		0x0002
@@ -919,6 +933,7 @@ EXT4_FEATURE_COMPAT_FUNCS(exclude_bitmap,	2, EXCLUDE_BITMAP)
 EXT4_FEATURE_COMPAT_FUNCS(sparse_super2,	4, SPARSE_SUPER2)
 EXT4_FEATURE_COMPAT_FUNCS(fast_commit,		4, FAST_COMMIT)
 EXT4_FEATURE_COMPAT_FUNCS(stable_inodes,	4, STABLE_INODES)
+EXT4_FEATURE_COMPAT_FUNCS(orphan_file,		4, ORPHAN_FILE)
 
 EXT4_FEATURE_RO_COMPAT_FUNCS(sparse_super,	2, SPARSE_SUPER)
 EXT4_FEATURE_RO_COMPAT_FUNCS(large_file,	2, LARGE_FILE)
@@ -935,6 +950,7 @@ EXT4_FEATURE_RO_COMPAT_FUNCS(readonly,		4, READONLY)
 EXT4_FEATURE_RO_COMPAT_FUNCS(project,		4, PROJECT)
 EXT4_FEATURE_RO_COMPAT_FUNCS(shared_blocks,	4, SHARED_BLOCKS)
 EXT4_FEATURE_RO_COMPAT_FUNCS(verity,		4, VERITY)
+EXT4_FEATURE_RO_COMPAT_FUNCS(orphan_present,	4, ORPHAN_PRESENT)
 
 EXT4_FEATURE_INCOMPAT_FUNCS(compression,	2, COMPRESSION)
 EXT4_FEATURE_INCOMPAT_FUNCS(filetype,		2, FILETYPE)
@@ -1102,6 +1118,14 @@ static inline unsigned int ext2fs_dir_rec_len(__u8 name_len,
 	return rec_len;
 }
 
+#define EXT4_ORPHAN_BLOCK_MAGIC 0x0b10ca04
+
+/* Structure at the tail of orphan block */
+struct ext4_orphan_block_tail {
+	__u32 ob_magic;
+	__u32 ob_checksum;
+};
+
 /*
  * Constants for ext4's extended time encoding
  */
@@ -1137,8 +1161,8 @@ struct mmp_struct {
 	__u32	mmp_magic;		/* Magic number for MMP */
 	__u32	mmp_seq;		/* Sequence no. updated periodically */
 	__u64	mmp_time;		/* Time last updated (seconds) */
-	__u8	mmp_nodename[64];	/* Node updating MMP block, no NUL? */
-	__u8	mmp_bdevname[32];	/* Bdev updating MMP block, no NUL? */
+	__u8	mmp_nodename[64] __nonstring;	/* Node updating MMP block, no NUL? */
+	__u8	mmp_bdevname[32] __nonstring;	/* Bdev updating MMP block, no NUL? */
 	__u16	mmp_check_interval;	/* Changed mmp_check_interval */
 	__u16	mmp_pad1;
 	__u32	mmp_pad2[226];
