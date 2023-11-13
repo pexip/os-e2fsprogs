@@ -50,29 +50,29 @@
  * to fix a problem.
  */
 static const char *prompt[] = {
-	N_("(no prompt)"),	/* 0 */
-	N_("Fix"),		/* 1 */
-	N_("Clear"),		/* 2 */
-	N_("Relocate"),		/* 3 */
-	N_("Allocate"),		/* 4 */
-	N_("Expand"),		/* 5 */
-	N_("Connect to /lost+found"), /* 6 */
-	N_("Create"),		/* 7 */
-	N_("Salvage"),		/* 8 */
-	N_("Truncate"),		/* 9 */
-	N_("Clear inode"),	/* 10 */
-	N_("Abort"),		/* 11 */
-	N_("Split"),		/* 12 */
-	N_("Continue"),		/* 13 */
-	N_("Clone multiply-claimed blocks"), /* 14 */
-	N_("Delete file"),	/* 15 */
-	N_("Suppress messages"),/* 16 */
-	N_("Unlink"),		/* 17 */
-	N_("Clear HTree index"),/* 18 */
-	N_("Recreate"),		/* 19 */
-	N_("Optimize"),		/* 20 */
-	N_("Clear flag"),	/* 21 */
-	"",			/* 22 */
+	N_("(no prompt)"),			/* PROMPT_NONE		=  0 */
+	N_("Fix"),				/* PROMPT_FIX		=  1 */
+	N_("Clear"),				/* PROMPT_CLEAR		=  2 */
+	N_("Relocate"),				/* PROMPT_RELOCATE	=  3 */
+	N_("Allocate"),				/* PROMPT_CREATE	=  4 */
+	N_("Expand"),				/* PROMPT_EXPAND	=  5 */
+	N_("Connect to /lost+found"),		/* PROMPT_CONNECT	=  6 */
+	N_("Create"),				/* PROMPT_CREATE	=  7 */
+	N_("Salvage"),				/* PROMPT_SALVAGE	=  8 */
+	N_("Truncate"),				/* PROMPT_TRUNCATE	=  9 */
+	N_("Clear inode"),			/* PROMPT_CLEAR_INODE	= 10 */
+	N_("Abort"),				/* PROMPT_ABORT		= 11 */
+	N_("Split"),				/* PROMPT_SPLIT		= 12 */
+	N_("Continue"),				/* PROMPT_CONTINUE	= 13 */
+	N_("Clone multiply-claimed blocks"),	/* PROMPT_CLONE		= 14 */
+	N_("Delete file"),			/* PROMPT_DELETE	= 15 */
+	N_("Suppress messages"),		/* PROMPT_SUPPRESS	= 16 */
+	N_("Unlink"),				/* PROMPT_UNLINK	= 17 */
+	N_("Clear HTree index"),		/* PROMPT_CLEAR_HTREE	= 18 */
+	N_("Recreate"),				/* PROMPT_RECREATE	= 19 */
+	N_("Optimize"),				/* PROMPT_OPTIMIZE	= 20 */
+	N_("Clear flag"),			/* PROMPT_CLEAR_FLAG	= 21 */
+	"",					/* PROMPT_NULL		= 22 */
 };
 
 /*
@@ -379,7 +379,7 @@ static struct e2fsck_problem problem_table[] = {
 	/* group descriptor N checksum is invalid, should be yyyy. */
 	{ PR_0_GDT_CSUM,
 	  N_("@g descriptor %g checksum is %04x, should be %04y.  "),
-	     PROMPT_FIX, PR_LATCH_BG_CHECKSUM, 0, 0, 0 },
+	     PROMPT_FIX, PR_PREEN_OK | PR_LATCH_BG_CHECKSUM, 0, 0, 0 },
 
 	/* group descriptor N marked uninitialized without feature set. */
 	{ PR_0_GDT_UNINIT,
@@ -525,6 +525,26 @@ static struct e2fsck_problem problem_table[] = {
 	  N_("Resize_@i and meta_bg features are enabled. Those features are\n"
 	     "not compatible. Resize @i should be disabled.  "),
 	  PROMPT_FIX, 0, 0, 0, 0 },
+
+	/* Orphan file contains holes */
+	{ PR_0_ORPHAN_FILE_HOLE,
+	  N_("Orphan file (@i %i) contains hole at @b %b. Terminating orphan file recovery.\n"),
+	  PROMPT_NONE, 0 },
+
+	/* Orphan file block has wrong magic */
+	{ PR_0_ORPHAN_FILE_BAD_MAGIC,
+	  N_("Orphan file (@i %i) @b %b contains wrong magic. Terminating orphan file recovery.\n"),
+	  PROMPT_NONE, 0 },
+
+	/* Orphan file block has wrong checksum */
+	{ PR_0_ORPHAN_FILE_BAD_CHECKSUM,
+	  N_("Orphan file (@i %i) @b %b contains wrong checksum. Terminating orphan file recovery.\n"),
+	  PROMPT_NONE, 0 },
+
+	/* Orphan file size isn't multiple of blocks size */
+	{ PR_0_ORPHAN_FILE_WRONG_SIZE,
+	  N_("Orphan file (@i %i) size is not multiple of block size. Terminating orphan file recovery.\n"),
+	  PROMPT_NONE, 0 },
 
 	/* Pass 1 errors */
 
@@ -1279,6 +1299,15 @@ static struct e2fsck_problem problem_table[] = {
 	  N_("@h %i uses SipHash, but should not.  "),
 	  PROMPT_CLEAR_HTREE, PR_PREEN_OK, 0, 0, 0 },
 
+	/* Orphan file has bad mode */
+	{ PR_1_ORPHAN_FILE_BAD_MODE,
+	  N_("Orphan file @i %i is not regular file.  "),
+	  PROMPT_CLEAR, PR_PREEN_OK },
+
+	/* Orphan file inode is not in use, but contains data */
+	{ PR_1_ORPHAN_FILE_NOT_CLEAR,
+	  N_("Orphan file @i %i is not in use, but contains data.  "),
+	  PROMPT_CLEAR, PR_PREEN_OK },
 
 	/* Pass 1b errors */
 
@@ -1852,7 +1881,7 @@ static struct e2fsck_problem problem_table[] = {
 	/* Unconnected directory inode */
 	{ PR_3_UNCONNECTED_DIR,
 	  /* xgettext:no-c-format */
-	  N_("Unconnected @d @i %i (%p)\n"),
+	  N_("Unconnected @d @i %i (was in %q)\n"),
 	  PROMPT_CONNECT, 0, 0, 0, 0 },
 
 	/* /lost+found not found */
@@ -1988,6 +2017,12 @@ static struct e2fsck_problem problem_table[] = {
 	{ PR_3_LPF_ENCRYPTED,
 	  N_("/@l is encrypted\n"),
 	  PROMPT_CLEAR, 0, 0, 0, 0 },
+
+	/* Recursively looped directory inode */
+	{ PR_3_LOOPED_DIR,
+	  /* xgettext:no-c-format */
+	  N_("Recursively looped @d @i %i (%p)\n"),
+	  PROMPT_CONNECT, 0, 0, 0, 0 },
 
 	/* Pass 3A Directory Optimization	*/
 
@@ -2259,6 +2294,56 @@ static struct e2fsck_problem problem_table[] = {
 	  N_("Error writing quota info for quota type %N: %m\n"),
 	  PROMPT_NULL, 0, 0, 0, 0 },
 
+	/* Orphan file without a journal */
+	{ PR_6_ORPHAN_FILE_WITHOUT_JOURNAL,
+	  N_("@S has orphan file without @j.\n"),
+	  PROMPT_CLEAR, PR_PREEN_OK },
+
+	/* Orphan file truncation failed */
+	{ PR_6_ORPHAN_FILE_TRUNC_FAILED,
+	  N_("Failed to truncate orphan file.\n"),
+	  PROMPT_NONE, 0 },
+
+	/* Failed to initialize orphan file */
+	{ PR_6_ORPHAN_FILE_CORRUPTED,
+	  N_("Failed to initialize orphan file.\n"),
+	  PROMPT_RECREATE, PR_PREEN_OK },
+
+	/* Cannot fix corrupted orphan file with invalid bitmaps */
+	{ PR_6_ORPHAN_FILE_BITMAP_INVALID,
+	  N_("Cannot fix corrupted orphan file with invalid bitmaps.\n"),
+	  PROMPT_NONE, 0 },
+
+	/* Orphan file creation failed */
+	{ PR_6_ORPHAN_FILE_CREATE_FAILED,
+	  N_("Failed to truncate orphan file (@i %i).\n"),
+	  PROMPT_NONE, 0 },
+
+	/* Orphan file block contains data */
+	{ PR_6_ORPHAN_BLOCK_DIRTY,
+	  N_("Orphan file (@i %i) @b %b is not clean.\n"),
+	  PROMPT_CLEAR, PR_PREEN_OK },
+
+	/* orphan_present set but orphan file is empty */
+	{ PR_6_ORPHAN_PRESENT_CLEAN_FILE,
+	  N_("Feature orphan_present is set but orphan file is clean.\n"),
+	  PROMPT_CLEAR, PR_PREEN_OK },
+
+	/* orphan_present set but orphan_file is not */
+	{ PR_6_ORPHAN_PRESENT_NO_FILE,
+	  N_("Feature orphan_present is set but feature orphan_file is not.\n"),
+	  PROMPT_CLEAR, PR_PREEN_OK },
+
+	/* Orphan file size isn't multiple of blocks size */
+	{ PR_6_ORPHAN_FILE_WRONG_SIZE,
+	  N_("Orphan file (@i %i) size is not multiple of block size.\n"),
+	  PROMPT_NONE, 0 },
+
+	/* Orphan file contains holes */
+	{ PR_6_ORPHAN_FILE_HOLE,
+	  N_("Orphan file (@i %i) contains hole at @b %b.\n"),
+	  PROMPT_NONE, 0 },
+
 	{ 0 }
 };
 
@@ -2315,6 +2400,8 @@ int end_problem_latch(e2fsck_t ctx, int mask)
 	int answer = -1;
 
 	ldesc = find_latch(mask);
+	if (!ldesc)
+		return answer;
 	if (ldesc->end_message && (ldesc->flags & PRL_LATCHED)) {
 		clear_problem_context(&pctx);
 		answer = fix_problem(ctx, ldesc->end_message, &pctx);
@@ -2461,8 +2548,8 @@ int fix_problem(e2fsck_t ctx, problem_t code, struct problem_context *pctx)
 	 * Do special latch processing.  This is where we ask the
 	 * latch question, if it exists
 	 */
-	if (ptr->flags & PR_LATCH_MASK) {
-		ldesc = find_latch(ptr->flags & PR_LATCH_MASK);
+	if (ptr->flags & PR_LATCH_MASK &&
+	    (ldesc = find_latch(ptr->flags & PR_LATCH_MASK)) != NULL) {
 		if (ldesc->question && !(ldesc->flags & PRL_LATCHED)) {
 			ans = fix_problem(ctx, ldesc->question, pctx);
 			if (ans == 1)
@@ -2486,8 +2573,7 @@ int fix_problem(e2fsck_t ctx, problem_t code, struct problem_context *pctx)
 		if ((ctx->options & E2F_OPT_PREEN) &&
 		    (ptr->flags & PR_PREEN_OK))
 			suppress++;
-		if ((ptr->flags & PR_LATCH_MASK) &&
-		    (ldesc->flags & (PRL_YES | PRL_NO)))
+		if (ldesc && (ldesc->flags & (PRL_YES | PRL_NO)))
 			suppress++;
 		if (ptr->count == ptr->max_count + 1) {
 			if (ctx->problem_logf)
@@ -2532,8 +2618,7 @@ int fix_problem(e2fsck_t ctx, problem_t code, struct problem_context *pctx)
 			answer = def_yn;
 			if (!(ptr->flags & PR_PREEN_NOMSG))
 				print_answer = 1;
-		} else if ((ptr->flags & PR_LATCH_MASK) &&
-			   (ldesc->flags & (PRL_YES | PRL_NO))) {
+		} else if (ldesc && (ldesc->flags & (PRL_YES | PRL_NO))) {
 			print_answer = 1;
 			if (ldesc->flags & PRL_YES)
 				answer = 1;

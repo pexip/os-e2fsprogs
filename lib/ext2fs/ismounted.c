@@ -97,7 +97,7 @@ static errcode_t check_mntent_file(const char *mtab_file, const char *file,
 				   int *mount_flags, char *mtpt, int mtlen)
 {
 	struct mntent 	*mnt;
-	struct stat	st_buf;
+	struct stat	st_buf, dir_st_buf;
 	errcode_t	retval = 0;
 	dev_t		file_dev=0, file_rdev=0;
 	ino_t		file_ino=0;
@@ -128,14 +128,14 @@ static errcode_t check_mntent_file(const char *mtab_file, const char *file,
 	while ((mnt = getmntent (f)) != NULL) {
 		if (mnt->mnt_fsname[0] != '/')
 			continue;
-		if (stat(mnt->mnt_dir, &st_buf) != 0)
-			continue;
 		if (strcmp(file, mnt->mnt_fsname) == 0) {
+			if (stat(mnt->mnt_dir, &st_buf) != 0)
+				continue;
 			if (file_rdev && (file_rdev != st_buf.st_dev)) {
 #ifdef DEBUG
 				printf("Bogus entry in %s!  "
-				       "(%s does not exist)\n",
-				       mtab_file, mnt->mnt_dir);
+				       "(%s is not mounted on %s)\n",
+				       mtab_file, file, mnt->mnt_dir);
 #endif /* DEBUG */
 				continue;
 			}
@@ -144,8 +144,14 @@ static errcode_t check_mntent_file(const char *mtab_file, const char *file,
 		if (stat(mnt->mnt_fsname, &st_buf) == 0) {
 			if (ext2fsP_is_disk_device(st_buf.st_mode)) {
 #ifndef __GNU__
-				if (file_rdev && (file_rdev == st_buf.st_rdev))
-					break;
+				if (file_rdev &&
+				    (file_rdev == st_buf.st_rdev)) {
+					if (stat(mnt->mnt_dir,
+						 &dir_st_buf) != 0)
+						continue;
+					if (file_rdev == dir_st_buf.st_dev)
+						break;
+				}
 				if (check_loop_mounted(mnt->mnt_fsname,
 						st_buf.st_rdev, file_dev,
 						file_ino) == 1)
@@ -207,6 +213,12 @@ is_root:
 			close(fd);
 		(void) unlink(TEST_FILE);
 	}
+
+	if (mnt && mnt->mnt_type &&
+	    (!strcmp(mnt->mnt_type, "ext4") ||
+	     !strcmp(mnt->mnt_type, "ext3") ||
+	     !strcmp(mnt->mnt_type, "ext2")))
+		*mount_flags |= EXT2_MF_EXTFS;
 	retval = 0;
 errout:
 	endmntent (f);
@@ -393,7 +405,8 @@ errcode_t ext2fs_check_mount_point(const char *device, int *mount_flags,
 
 	if (is_swap_device(device)) {
 		*mount_flags = EXT2_MF_MOUNTED | EXT2_MF_SWAP;
-		strncpy(mtpt, "<swap>", mtlen);
+		if (mtpt)
+			strncpy(mtpt, "<swap>", mtlen);
 	} else {
 #ifdef HAVE_SETMNTENT
 		retval = check_mntent(device, mount_flags, mtpt, mtlen);
@@ -401,7 +414,7 @@ errcode_t ext2fs_check_mount_point(const char *device, int *mount_flags,
 #ifdef HAVE_GETMNTINFO
 		retval = check_getmntinfo(device, mount_flags, mtpt, mtlen);
 #else
-#ifdef __GNUC__
+#if defined(__GNUC__) && !defined(_WIN32)
  #warning "Can't use getmntent or getmntinfo to check for mounted filesystems!"
 #endif
 		*mount_flags = 0;

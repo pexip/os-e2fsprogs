@@ -33,7 +33,14 @@ extern char *optarg;
 #include "debugfs.h"
 #include "blkid/blkid.h"
 #include "jfs_user.h"
+#if __GNUC_PREREQ (4, 6)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#endif
 #include "ext2fs/fast_commit.h"
+#if __GNUC_PREREQ (4, 6)
+#pragma GCC diagnostic pop
+#endif
 #include <uuid/uuid.h>
 
 enum journal_location {JOURNAL_IS_INTERNAL, JOURNAL_IS_EXTERNAL};
@@ -41,6 +48,7 @@ enum journal_location {JOURNAL_IS_INTERNAL, JOURNAL_IS_EXTERNAL};
 #define ANY_BLOCK ((blk64_t) -1)
 
 static int		dump_all, dump_super, dump_old, dump_contents, dump_descriptors;
+static int64_t		dump_counts;
 static blk64_t		block_to_dump, bitmap_to_dump, inode_block_to_dump;
 static unsigned int	group_to_dump, inode_offset_to_dump;
 static ext2_ino_t	inode_to_dump;
@@ -56,18 +64,18 @@ static void dump_journal(char *, FILE *, struct journal_source *);
 
 static void dump_descriptor_block(FILE *, struct journal_source *,
 				  char *, journal_superblock_t *,
-				  unsigned int *, int, __u32, tid_t);
+				  unsigned int *, unsigned int, __u32, tid_t);
 
 static void dump_revoke_block(FILE *, char *, journal_superblock_t *,
-				  unsigned int, int, tid_t);
+				  unsigned int, unsigned int, tid_t);
 
 static void dump_metadata_block(FILE *, struct journal_source *,
 				journal_superblock_t*,
 				unsigned int, unsigned int, unsigned int,
-				int, tid_t);
+				unsigned int, tid_t);
 
 static void dump_fc_block(FILE *out_file, char *buf, int blocksize,
-			  int transaction, int *fc_done, int dump_old);
+			  tid_t transaction, int *fc_done);
 
 static void do_hexdump (FILE *, char *, int);
 
@@ -106,9 +114,10 @@ void do_logdump(int argc, char **argv, int sci_idx EXT2FS_ATTR((unused)),
 	bitmap_to_dump = -1;
 	inode_block_to_dump = ANY_BLOCK;
 	inode_to_dump = -1;
+	dump_counts = -1;
 
 	reset_getopt();
-	while ((c = getopt (argc, argv, "ab:ci:f:OsS")) != EOF) {
+	while ((c = getopt (argc, argv, "ab:ci:f:OsSn:")) != EOF) {
 		switch (c) {
 		case 'a':
 			dump_all++;
@@ -140,6 +149,14 @@ void do_logdump(int argc, char **argv, int sci_idx EXT2FS_ATTR((unused)),
 			break;
 		case 'S':
 			dump_super++;
+			break;
+		case 'n':
+			dump_counts = strtol(optarg, &tmp, 10);
+			if (*tmp) {
+				com_err(argv[0], 0,
+					"Bad log counts number - %s", optarg);
+				return;
+			}
 			break;
 		default:
 			goto print_usage;
@@ -282,7 +299,7 @@ cleanup:
 	return;
 
 print_usage:
-	fprintf(stderr, "%s: Usage: logdump [-acsOS] [-b<block>] [-i<filespec>]\n\t"
+	fprintf(stderr, "%s: Usage: logdump [-acsOS] [-n<num_trans>] [-b<block>] [-i<filespec>]\n\t"
 		"[-f<journal_file>] [output_file]\n", argv[0]);
 }
 
@@ -359,9 +376,12 @@ static void dump_journal(char *cmdname, FILE *out_file,
 	journal_header_t	*header;
 	tid_t			transaction;
 	unsigned int		blocknr = 0;
+	unsigned int		first_transaction_blocknr;
 	int			fc_done;
 	__u64			total_len;
 	__u32			maxlen;
+	int64_t			cur_counts = 0;
+	bool			exist_no_magic = false;
 
 	/* First, check to see if there's an ext2 superblock header */
 	retval = read_journal_block(cmdname, source, 0, buf, 2048);
@@ -451,7 +471,19 @@ static void dump_journal(char *cmdname, FILE *out_file,
 			blocknr = 1;
 	}
 
+	first_transaction_blocknr = blocknr;
+
 	while (1) {
+		if (dump_old && (dump_counts != -1) && (cur_counts >= dump_counts))
+			break;
+
+		if ((blocknr == first_transaction_blocknr) &&
+		    (cur_counts != 0) && dump_old && (dump_counts != -1)) {
+			fprintf(out_file, "Dump all %lld journal records.\n",
+				(long long) cur_counts);
+			break;
+		}
+
 		retval = read_journal_block(cmdname, source,
 				((ext2_loff_t) blocknr) * blocksize,
 				buf, blocksize);
@@ -465,8 +497,16 @@ static void dump_journal(char *cmdname, FILE *out_file,
 		blocktype = be32_to_cpu(header->h_blocktype);
 
 		if (magic != JBD2_MAGIC_NUMBER) {
-			fprintf (out_file, "No magic number at block %u: "
-				 "end of journal.\n", blocknr);
+			if (exist_no_magic == false) {
+				exist_no_magic = true;
+				fprintf(out_file, "No magic number at block %u: "
+					"end of journal.\n", blocknr);
+			}
+			if (dump_old && (dump_counts != -1)) {
+				blocknr++;
+				WRAP(jsb, blocknr, maxlen);
+				continue;
+			}
 			break;
 		}
 
@@ -493,6 +533,7 @@ static void dump_journal(char *cmdname, FILE *out_file,
 			continue;
 
 		case JBD2_COMMIT_BLOCK:
+			cur_counts++;
 			transaction++;
 			blocknr++;
 			WRAP(jsb, blocknr, maxlen);
@@ -522,8 +563,7 @@ fc:
 		if (retval)
 			return;
 
-		dump_fc_block(out_file, buf, blocksize, transaction, &fc_done,
-			dump_old);
+		dump_fc_block(out_file, buf, blocksize, transaction, &fc_done);
 		if (!dump_old && fc_done)
 			break;
 		blocknr++;
@@ -549,26 +589,30 @@ static inline size_t journal_super_tag_bytes(journal_superblock_t *jsb)
 }
 
 static void dump_fc_block(FILE *out_file, char *buf, int blocksize,
-	int transaction, int *fc_done, int dump_old)
+			  tid_t transaction, int *fc_done)
 {
-	struct ext4_fc_tl	*tl;
+	struct ext4_fc_tl	tl;
 	struct ext4_fc_head	*head;
 	struct ext4_fc_add_range	*add_range;
 	struct ext4_fc_del_range	*del_range;
 	struct ext4_fc_dentry_info	*dentry_info;
 	struct ext4_fc_tail		*tail;
 	struct ext3_extent	*ex;
+	__u8			*cur, *val;
 
 	*fc_done = 0;
-	fc_for_each_tl(buf, buf + blocksize, tl) {
-		switch (le16_to_cpu(tl->fc_tag)) {
+	for (cur = (__u8 *)buf; cur < (__u8 *)buf + blocksize;
+	     cur = cur + sizeof(tl) + le16_to_cpu(tl.fc_len)) {
+		memcpy(&tl, cur, sizeof(tl));
+		val = cur + sizeof(tl);
+
+		switch (le16_to_cpu(tl.fc_tag)) {
 		case EXT4_FC_TAG_ADD_RANGE:
-			add_range =
-				(struct ext4_fc_add_range *)ext4_fc_tag_val(tl);
+			add_range = (struct ext4_fc_add_range *)val;
 			ex = (struct ext3_extent *)add_range->fc_ex;
 			fprintf(out_file,
 				"tag %s, inode %d, lblk %u, pblk %llu, len %lu\n",
-				tag2str(tl->fc_tag),
+				tag2str(tl.fc_tag),
 				le32_to_cpu(add_range->fc_ino),
 				le32_to_cpu(ex->ee_block),
 				le32_to_cpu(ex->ee_start) +
@@ -578,10 +622,9 @@ static void dump_fc_block(FILE *out_file, char *buf, int blocksize,
 				le16_to_cpu(ex->ee_len));
 			break;
 		case EXT4_FC_TAG_DEL_RANGE:
-			del_range =
-				(struct ext4_fc_del_range *)ext4_fc_tag_val(tl);
+			del_range = (struct ext4_fc_del_range *)val;
 			fprintf(out_file, "tag %s, inode %d, lblk %d, len %d\n",
-				tag2str(tl->fc_tag),
+				tag2str(tl.fc_tag),
 				le32_to_cpu(del_range->fc_ino),
 				le32_to_cpu(del_range->fc_lblk),
 				le32_to_cpu(del_range->fc_len));
@@ -589,29 +632,26 @@ static void dump_fc_block(FILE *out_file, char *buf, int blocksize,
 		case EXT4_FC_TAG_LINK:
 		case EXT4_FC_TAG_UNLINK:
 		case EXT4_FC_TAG_CREAT:
-			dentry_info =
-				(struct ext4_fc_dentry_info *)
-					ext4_fc_tag_val(tl);
+			dentry_info = (struct ext4_fc_dentry_info *)val;
 			fprintf(out_file,
 				"tag %s, parent %d, ino %d, name \"%s\"\n",
-				tag2str(tl->fc_tag),
+				tag2str(tl.fc_tag),
 				le32_to_cpu(dentry_info->fc_parent_ino),
 				le32_to_cpu(dentry_info->fc_ino),
 				dentry_info->fc_dname);
 			break;
 		case EXT4_FC_TAG_INODE:
 			fprintf(out_file, "tag %s, inode %d\n",
-				tag2str(tl->fc_tag),
-				le32_to_cpu(((struct ext4_fc_inode *)
-					ext4_fc_tag_val(tl))->fc_ino));
+				tag2str(tl.fc_tag),
+				le32_to_cpu(((struct ext4_fc_inode *)val)->fc_ino));
 			break;
 		case EXT4_FC_TAG_PAD:
-			fprintf(out_file, "tag %s\n", tag2str(tl->fc_tag));
+			fprintf(out_file, "tag %s\n", tag2str(tl.fc_tag));
 			break;
 		case EXT4_FC_TAG_TAIL:
-			tail = (struct ext4_fc_tail *)ext4_fc_tag_val(tl);
+			tail = (struct ext4_fc_tail *)val;
 			fprintf(out_file, "tag %s, tid %d\n",
-				tag2str(tl->fc_tag),
+				tag2str(tl.fc_tag),
 				le32_to_cpu(tail->fc_tid));
 			if (!dump_old &&
 				le32_to_cpu(tail->fc_tid) < transaction) {
@@ -621,9 +661,9 @@ static void dump_fc_block(FILE *out_file, char *buf, int blocksize,
 			break;
 		case EXT4_FC_TAG_HEAD:
 			fprintf(out_file, "\n*** Fast Commit Area ***\n");
-			head = (struct ext4_fc_head *)ext4_fc_tag_val(tl);
+			head = (struct ext4_fc_head *)val;
 			fprintf(out_file, "tag %s, features 0x%x, tid %d\n",
-				tag2str(tl->fc_tag),
+				tag2str(tl.fc_tag),
 				le32_to_cpu(head->fc_features),
 				le32_to_cpu(head->fc_tid));
 			if (!dump_old &&
@@ -643,11 +683,11 @@ static void dump_descriptor_block(FILE *out_file,
 				  struct journal_source *source,
 				  char *buf,
 				  journal_superblock_t *jsb,
-				  unsigned int *blockp, int blocksize,
+				  unsigned int *blockp, unsigned blocksize,
 				  __u32 maxlen,
 				  tid_t transaction)
 {
-	int			offset, tag_size, csum_size = 0;
+	unsigned		offset, tag_size, csum_size = 0;
 	char			*tagp;
 	journal_block_tag_t	*tag;
 	unsigned int		blocknr;
@@ -703,10 +743,10 @@ static void dump_descriptor_block(FILE *out_file,
 static void dump_revoke_block(FILE *out_file, char *buf,
 			      journal_superblock_t *jsb EXT2FS_ATTR((unused)),
 			      unsigned int blocknr,
-			      int blocksize EXT2FS_ATTR((unused)),
+			      unsigned int blocksize,
 			      tid_t transaction)
 {
-	int			offset, max;
+	unsigned int		offset, max;
 	jbd2_journal_revoke_header_t *header;
 	unsigned long long	rblock;
 	int			tag_size = sizeof(__u32);
@@ -721,10 +761,10 @@ static void dump_revoke_block(FILE *out_file, char *buf,
 	header = (jbd2_journal_revoke_header_t *) buf;
 	offset = sizeof(jbd2_journal_revoke_header_t);
 	max = be32_to_cpu(header->r_count);
-	if (max > jsb->s_blocksize) {
+	if (max > blocksize) {
 		fprintf(out_file, "Revoke block's r_count invalid: %u\b",
 			max);
-		max = jsb->s_blocksize;
+		max = blocksize;
 	}
 
 	while (offset < max) {
@@ -769,7 +809,7 @@ static void dump_metadata_block(FILE *out_file, struct journal_source *source,
 				unsigned int log_blocknr,
 				unsigned int fs_blocknr,
 				unsigned int log_tag_flags,
-				int blocksize,
+				unsigned int blocksize,
 				tid_t transaction)
 {
 	int		retval;

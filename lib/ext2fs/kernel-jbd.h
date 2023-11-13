@@ -26,7 +26,6 @@
 
 #define journal_oom_retry 0
 
-#ifdef __STDC__
 #ifdef CONFIG_JBD_DEBUG
 /*
  * Define JBD_EXPENSIVE_CHECKING to enable more expensive internal
@@ -35,7 +34,11 @@
  */
 #define JBD_EXPENSIVE_CHECKING
 extern int journal_enable_debug;
+#else
+#define journal_enable_debug (-1)
+#endif /* !CONFIG_JBD_DEBUG */
 
+#ifdef __STDC__
 #define jbd_debug(n, f, a...)						\
 	do {								\
 		if ((n) <= journal_enable_debug) {			\
@@ -45,27 +48,8 @@ extern int journal_enable_debug;
 		}							\
 	} while (0)
 #else
-#ifdef __GNUC__
-#if defined(__KERNEL__) || !defined(CONFIG_JBD_DEBUG)
-#define jbd_debug(f, a...)	/**/
-#else
-extern int journal_enable_debug;
-#define jbd_debug(n, f, a...)						\
-	do {								\
-		if ((n) <= journal_enable_debug) {			\
-			printf("(%s, %d): %s: ",			\
-				__FILE__, __LINE__, __func__);		\
-			printf(f, ## a);				\
-		}							\
-	} while (0)
-#endif /*__KERNEL__ */
-#else
-#define jbd_debug(f, ...)	/**/
-#endif
-#endif
-#else
 #define jbd_debug(x)		/* AIX doesn't do STDC */
-#endif
+#endif /* !__STDC__ */
 
 extern void * __jbd_kmalloc (char *where, size_t size, int flags, int retry);
 #define jbd_kmalloc(size, flags) \
@@ -279,6 +263,7 @@ typedef struct journal_superblock_s
 #ifdef NO_INLINE_FUNCS
 extern size_t journal_tag_bytes(journal_t *journal);
 extern int jbd2_journal_has_csum_v2or3(journal_t *journal);
+extern int jbd2_journal_get_num_fc_blks(journal_superblock_t *jsb);
 extern int tid_gt(tid_t x, tid_t y) EXT2FS_ATTR((unused));
 extern int tid_geq(tid_t x, tid_t y) EXT2FS_ATTR((unused));
 #endif
@@ -459,7 +444,7 @@ extern int journal_blocks_per_page(struct inode *inode);
 #define BJ_SyncData	1	/* Normal data: flush before commit */
 #define BJ_AsyncData	2	/* writepage data: wait on it before commit */
 #define BJ_Metadata	3	/* Normal journaled metadata */
-#define BJ_Forget	4	/* Buffer superceded by this transaction */
+#define BJ_Forget	4	/* Buffer superseded by this transaction */
 #define BJ_IO		5	/* Buffer is for temporary IO use */
 #define BJ_Shadow	6	/* Buffer contents being shadowed to the log */
 #define BJ_LogCtl	7	/* Buffer contains log descriptors */
