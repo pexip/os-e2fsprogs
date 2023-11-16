@@ -1,3 +1,9 @@
+e2fsprogs (1.47.0-2pexip1) pexip-bookworm; urgency=medium
+
+  * Initial bookworm build
+
+ -- Mark Hymers <mark.hymers@pexip.com>  Thu, 16 Nov 2023 09:58:18 +0000
+
 e2fsprogs (1.47.0-2) unstable; urgency=medium
 
   * Don't enable metadata_csum_seed and orhpan_file by default (Closes:
