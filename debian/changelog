@@ -1,3 +1,9 @@
+e2fsprogs (1.47.2-1+pexip25u1) pexip-trixie; urgency=medium
+
+  * Initial trixie build
+
+ -- Mark Hymers <mark.hymers@pexip.com>  Tue, 29 Apr 2025 22:30:42 +0100
+
 e2fsprogs (1.47.2-1) unstable; urgency=medium
 
   * New upstream version
